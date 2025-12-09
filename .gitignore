@@ -186,8 +186,8 @@ tools/*
 src/scripts/causal_agents
 src/scripts/data_analysis
 src/scripts/data_processing
-src/scripts/causal_agents.proto
-src/scripts/causal_agents_pb2.py
+src/scripts/causal_labels.proto
+src/scripts/causal_labels_pb2.py
 meta/
 LICENSE
 uv.lock

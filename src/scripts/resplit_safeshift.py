@@ -66,7 +66,7 @@ def _process_scenario(scenario_id: str, input_filepath: Path, destination_path: 
 
     Args:
         scenario_id (str): ID of the scenario in the source directory to be copied to the destination path.
-        input_path (Path): Path to the input scenario.
+        input_filepath (Path): Filepath to the input scenario.
         destination_path (Path): Path where the scenario will be copied to.
 
     """
@@ -100,7 +100,7 @@ def run(  # noqa: PLR0913
     """Preprocess Waymo scenario protos from SafeShift using multiprocessing.
 
     Args:
-        base_path: Path to the SafeShift data.
+        scores_path: Path to the SafeShift score metadata.
         scenarios_path: Path to the scenarios to be sorted.
         output_path: Path to store the processed data.
         prefix: Prefix of the SafeShift score metadata. It indicates the type of scoring strategy utilized to sort the
@@ -151,14 +151,14 @@ def run(  # noqa: PLR0913
                     # print(f"Warning: Scenario ID {scenario_id} not found in scenario filepaths.")
                     num_not_found += 1
                     continue
-                split_tasks.append((scenario_id, scenario_filepath, shard_dir))  # noqa: PERF401
+                split_tasks.append((scenario_id, scenario_filepath, shard_dir))
 
         print(f"\tTotal tasks prepared: {len(split_tasks)} for split {split}.")
         print(f"\tNumber of scenarios not found: {num_not_found} for split {split}.")
         tasks.extend(split_tasks)
 
     # Use all available cores if n_jobs is not specified
-    if n_jobs is None:
+    if n_jobs == -1:
         n_jobs = cpu_count()
 
     print(f"Starting parallel processing with {n_jobs} workers...")
@@ -171,9 +171,9 @@ def run(  # noqa: PLR0913
                 desc="Processing scenarios in parallel",
             )
         )
-    print(f"Finished {split} split in {time() - start_time:.2f} seconds.")
+    print(f"Finished processing and sharding data in {time() - start_time:.2f} seconds.")
 
-    print("Finished processing and sharding data for split.")
+    # Verify the splits were correctly created
     verify(output_path, scores_path, prefix)
 
 

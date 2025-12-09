@@ -5,55 +5,48 @@ build-backend = "hatchling.build"
 [project]
 name = "scene-tokens"
 version = "0.1.0"
-requires-python = ">=3.10, <3.13"
+requires-python = ">3.11, <3.13"
 authors = [
   {name = "Ingrid Navarro", email = "inavarro@stackav.com"},
 ]
 readme = "README.md"
 
 dependencies = [
+  # keep-sorted start
   "easydict>=1.13",
   "einops>=0.8.1",
-  "h5py>=3.13.0",
-  "hydra-core>=1.3.2",
-  "matplotlib>=3.6.1; python_version<'3.11'",
-  "matplotlib>=3.10.3; python_version>='3.11'",
-  "numpy>=1.21.5; python_version<'3.11'",
-  "numpy>=2.1.3; python_version>='3.11'",
-  "pandas>=1.5.3; python_version<'3.11'",
-  "pandas>=2.2.3; python_version>='3.11'",
-  "pytorch-lightning>=2.5.1.post0",
-  "scikit-learn>=1.6.1; python_version>='3.11'",
-  "tensorboard>=2.11,<2.12; python_version<'3.10'",
-  "tensorboard>=2.19.0; python_version>='3.11'",
-  "torch>=2.7.0",
-  "tensorflow==2.11; python_version<'3.11'",
-  "tensorflow>=2.19.0; python_version>='3.11'",
-  "wandb>=0.19.11",
-  "tqdm>=4.67.1",
-  "joblib>=1.5.1",
-  "seaborn>=0.13.2; python_version>'3.11'",
-  "seaborn>=0.12.0; python_version<'3.11'",
-  "hydra-colorlog>=1.2.0",
-  "omegaconf>=2.3.0",
-  "pillow>=9.2.0; python_version<'3.11'",
-  "pillow>=11.2.1; python_version>='3.11'",
-  "pyyaml>=6.0.2",
   "google>=3.0.0",
-  "typing-extensions>=4.14.0",
-  "opencv-python>=4.11.0.86",
-  "rich>=14.0.0",
-  "pyrootutils>=1.0.4",
-  "natsort>=8.4.0",
-  "scenario-characterization",
+  "h5py>=3.13.0",
+  "hydra-colorlog>=1.2.0",
+  "hydra-core>=1.3.2",
+  "joblib>=1.5.1",
+  "matplotlib>=3.10.3",
   "mlflow>=3.1.1",
-  "pydantic>=2.11.7",
+  "natsort>=8.4.0",
+  "numpy>=2.1.3",
+  "omegaconf>=2.3.0",
+  "opencv-python>=4.11.0.86",
+  "pandas>=2.2.3",
+  "pillow>=11.2.1",
   "pydantic-tensor>=0.2.0",
-  "scipy>=1.10.1; python_version<'3.11'",
-  "scipy>=1.15.3; python_version>='3.11'",
-  "scikit-learn>=1.2.2; python_version<'3.11'",
-  "vector-quantize-pytorch>=1.27.7",
+  "pydantic>=2.11.7",
+  "pyrootutils>=1.0.4",
+  "pytorch-lightning>=2.5.1.post0",
+  "pyyaml>=6.0.2",
+  "rich>=14.0.0",
+  "scenario-characterization",
+  "scikit-learn>=1.6.1",
+  "scipy>=1.15.3",
+  "seaborn>=0.13.2",
+  "tensorboard>=2.19.0",
+  "tensorflow>=2.19.0",
+  "torch>=2.7.0",
+  "tqdm>=4.67.1",
+  "typing-extensions>=4.14.0",
   "umap-learn>=0.5.7",
+  "vector-quantize-pytorch>=1.27.7",
+  "wandb>=0.19.11",
+  # keep-sorted end
 ]
 
 
@@ -61,9 +54,6 @@ dependencies = [
 dev = [
   "pre-commit>=4.2.0",
   "pyright>=1.1.405",
-]
-waymo = [
-  "waymo-open-dataset-tf-2-11-0>=1.6.1; python_version=='3.10'",
 ]
 
 [tool.hatch.build.targets.sdist]
@@ -92,6 +82,45 @@ lint.extend-select = [
   "I",
   # keep-sorted end
 ]
+lint.ignore = [
+  # keep-sorted start
+  "C901",    # too complex
+  "COM812",  # flake8-commas - missing-trailing-comma
+  "D100",    # pydocstyle - missing docstring in public module
+  "D101",    # pydocstyle - missing docstring in public class
+  "D102",    # pydocstyle - missing docstring in public method"
+  "D103",    # pydocstyle - missing docstring in public function
+  "D104",    # pydocstyle - missing docstring in public package
+  "D105",    # pydocstyle - missing docstring in magic method
+  "D107",    # pydocstyle - missing docstring in init
+  "D203",    # pydocstyle - blank line required before class docstring
+  "D205",    # pydocstyle - blank line required before class docstring
+  "D415",    # pydocstyle - first line should end with a period
+  "ERA001",  # eradicate - remove commented-out code
+  "F841",    # local variable assigned but not used (since pyright reportUnusedVariable is enabled)
+  "FIX002",  # flake8-fixme - line contains todo
+  "S101",    # use of assert detected
+  "S301",    # pickle can be unsafe to deserialize
+  "T20",     # flake8-print - disallow prints
+  "TC001",   # move application import into a type-checking block
+  "TC002",   # move import into a type-checking block
+  "TD",      # ignore all TODO rules, re-enable later.
+  "TD002",   # flake8-todos - missing author in todo
+  "TD003",   # flake8-todos - missing issue link on line following todo
+  "W293",    # blank line contains whitespace
+  # keep-sorted end
+]
+lint.select = ["ALL"]
+lint.fixable = ["ALL"]
+lint.unfixable = [
+  # Disable the autofixes for the following so that stuff doesn't get deleted when formatting on save
+  # keep-sorted start
+  "ERA001", # eradicate - remove commented-out code
+  "F401",   # pyflakes - unused import
+  "F841",   # pyflakes - unused variable
+  "RUF100", # unused-noqa
+  # keep-sorted end
+]
 exclude = [
     ".eggs",
     ".git",
@@ -116,60 +145,11 @@ exclude = [
     "src/scenetokens/models/components",
     "src/scenetokens/datasets/base_dataset.py",
     "src/scripts/waymo_data_processing.py",
+    "src/scripts/causal_labels_pb2.py",
 ]
 line-length = 120
 target-version = "py312"
 fix = true
-lint.ignore = [
-  # keep-sorted start
-  "C901",             # too complex
-  "COM812",           #
-  "D100",             # missing docstring in public module
-  "D104",             # missing docstring in public package
-  "ERA001",           # eradicate: remove commented-out code
-  "F841",             # local variable assigned but not used (since pyright reportUnusedVariable is enabled)
-  "FIX002",           # line contains TODO
-  "PLR0913",          # too many arguments in function definition
-  "PLR0915",          # too many statements
-  "PTH",              # use pathlib instead of os, re-enable later
-  "S101",             # use of assert detected
-  "S301",             # pickle load
-  "TC001",            # move application import into a type-checking block
-  "TC002",            # move import into a type-checking block
-  "TD",               # ignore all TODO rules, re-enable later.
-  "TD003",            # missing issue
-  "W293",             # blank line contains whitespace
-  "COM812",  # flake8-commas - missing-trailing-comma
-  "D100",    # pydocstyle - missing docstring in public module
-  "D101",    # pydocstyle - missing docstring in public class
-  "D102",    # pydocstyle - missing docstring in public method"
-  "D103",    # pydocstyle - missing docstring in public function
-  "D104",    # pydocstyle - missing docstring in public package
-  "D105",    # pydocstyle - missing docstring in magic method
-  "D107",    # pydocstyle - missing docstring in init
-  "D203",    # pydocstyle - blank line required before class docstring
-  "D205",    # pydocstyle - blank line required before class docstring
-  "D415",    # pydocstyle - first line should end with a period
-  "ERA001",  # eradicate - remove commented-out code
-  "FIX002",  # flake8-fixme - line contains todo
-  "S101",    # use of assert detected
-  "S301",    # pickle can be unsafe to deserialize
-  "T20",     # flake8-print - disallow prints
-  "TD002",   # flake8-todos - missing author in todo
-  "TD003",   # flake8-todos - missing issue link on line following todo
-  # keep-sorted end
-]
-lint.select = ["ALL"]
-lint.fixable = ["ALL"]
-lint.unfixable = [
-  # Disable the autofixes for the following so that stuff doesn't get deleted when formatting on save
-  # keep-sorted start
-  "ERA001", # eradicate - remove commented-out code
-  "F401",   # pyflakes - unused import
-  "F841",   # pyflakes - unused variable
-  "RUF100", # unused-noqa
-  # keep-sorted end
-]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -186,52 +166,3 @@ lines-after-imports = 2
 
 [tool.flake8]
 max-line-length = 120
-
-[tool.pyright]
-pythonVersion = "3.12"
-include = ["src"]
-exclude = [
-    "tmp/**",
-    "src/scripts",
-    "src/characterization/datasets/waymo_preprocess.py",
-    "src/characterization/viz_scores_pdf.py",
-    "**/__pycache__",
-]
-ignore = ["tmp/**"]
-typeCheckingMode = "strict"
-deprecateTypingAliases = true              # Check for deprecated typing aliases
-
-# Set to false
-# keep-sorted start
-enableTypeIgnoreComments = false           # Disable support for '# type: ignore' in favor of '# pyright: ignore'
-reportMissingTypeStubs = false             # Report Missing stubs
-reportUnknownArgumentType = false          # Argument type could not be inferred
-reportUnknownMemberType = false            # Attribute exists but type is unknown
-reportUnknownParameterType = false         # Parameter type could not be inferred
-reportUnknownVariableType = false          # Variable type could not be inferred
-reportUnusedCallResult = false             # Disable check for call statements whose return value is not None and is not used.
-# keep-sorted end
-
-# Set to "error"
-# keep-sorted start
-reportArgumentType = "error"               # Function call arg type mismatch
-reportAttributeAccessIssue = "error"       # Attribute access issue
-reportCallIssue = "error"                  # Wrong number of args / invalid call
-reportIncompatibleMethodOverride = "error" # Subclass overrides with incompatible signature
-reportMissingParameterType = "error"       # Parameter missing explicit type
-reportMissingTypeArgument = "error"        # Generic used without type args (e.g., list vs list[int])
-reportOptionalMemberAccess = "error"       # Accessing attribute on possibly None
-reportOptionalOperand = "error"            # Using arithmetic/logical op on possibly None
-reportOptionalSubscript = "error"          # Indexing a possibly None value
-reportPossiblyUnboundVariable = "error"    # Variable may be used before assignment
-reportUnnecessaryComparison = "error"      # Comparison always true/false
-reportUntypedBaseClass = "error"           # Inheriting from untyped base class
-# keep-sorted end
-
-# Set to "none"
-# keep-sorted start
-reportInvalidTypeForm = "none"             # Invalid type expression (unsupported or malformed)
-reportMissingImports = "none"              # Import cannot be resolved → runtime ImportError (TODO: resolve)
-reportMissingModuleSource = "none"         # Module has stub but no source (informational only)
-reportUntypedFunctionDecorator = "none"    # Decorator has no type info
-# keep-sorted end
