@@ -2,4 +2,4 @@
 
 defaults:
   - csv.yaml
-  - mlflow.yaml
+  - wandb.yaml

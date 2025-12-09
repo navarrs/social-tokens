@@ -27,6 +27,6 @@ config:
 
   monitor: "losses/val"
 
-  cache_batch: True
+  cache_batch: False
   cache_every_batch_idx: 100
   batch_cache_path: ${paths.batch_cache_path}
