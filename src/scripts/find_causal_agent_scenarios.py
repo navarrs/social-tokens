@@ -52,7 +52,7 @@ def get_intersection(causal_scenario_ids: list[str], record_scenario_ids: list[s
     return intersecting_scenarios, intersecting_idxs
 
 
-def run(validation_data_path: Path, summary_filepath: Path, validation_records_filepath: Path) -> None:
+def run(validation_data_path: Path, summary_filepath: Path, validation_records_output_path: Path) -> None:
     assert validation_data_path.exists(), f"Validation path {validation_data_path} does not exist!"
     assert summary_filepath.exists(), (
         f"Causal summary {summary_filepath} does not exist! Run 'process_causal_agent_labels.py' first."
@@ -96,6 +96,8 @@ def run(validation_data_path: Path, summary_filepath: Path, validation_records_f
     validation_records_info["num_not_found"] = len(not_found)
 
     # Save validation records summary
+    validation_records_output_path.mkdir(parents=True, exist_ok=True)
+    validation_records_filepath = validation_records_output_path / "validation_records.json"
     with validation_records_filepath.open("w") as f:
         json.dump(validation_records_info, f, indent=4)
 
@@ -117,9 +119,9 @@ if __name__ == "__main__":
         help="Paths to the processed data.",
     )
     parser.add_argument(
-        "--validation_records_filepath",
+        "--validation_records_output_path",
         type=Path,
-        default="/datasets/waymo/causal_agents/validation_records.json",
+        default="/datasets/waymo/causal_agents/",
         help="Paths to the processed data.",
     )
     args = parser.parse_args()

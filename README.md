@@ -18,6 +18,12 @@ uv run python -c "import torch; print(torch.cuda.is_available())"
 uv run python -c "import characterization"
 ```
 
+If installing with dev, run
+```bash
+uv run pip install -e. ".[dev]"
+uv run pre-commit install
+```
+
 ## Documentation
 
 All documentation needed to use this repository is below:

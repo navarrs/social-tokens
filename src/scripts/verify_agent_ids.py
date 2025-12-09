@@ -7,7 +7,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 
-def run(input_data_path: Path, labels_path: Path, summary_filepath: Path) -> None:
+def run(input_data_path: Path, labels_path: Path, summary_path: Path) -> None:
     assert input_data_path.exists(), f"Input data path {input_data_path} does not exist!"
     assert labels_path.exists(), f"Labels path {labels_path} does not exist!"
 
@@ -32,8 +32,8 @@ def run(input_data_path: Path, labels_path: Path, summary_filepath: Path) -> Non
     }
 
     labels_filepaths = labels_path.glob("*json")
-    for labels_filepath in tqdm(labels_filepaths, total=len(labels_filepaths)):
-        scenario_id = labels_filepath.split("/")[-1].split(".")[0]
+    for labels_filepath in tqdm(labels_filepaths):
+        scenario_id = str(labels_filepath).split("/")[-1].split(".")[0]
 
         scenario_filepath = scenario_dict.get(scenario_id)
         if scenario_filepath is None:
@@ -61,6 +61,7 @@ def run(input_data_path: Path, labels_path: Path, summary_filepath: Path) -> Non
     valid_scenarios["num_not_found"] = num_not_found
 
     print(f"Valid agent IDs:\n{json.dumps(valid_scenarios, indent=2)}")
+    summary_filepath = summary_path / "valid_labels.json"
     with summary_filepath.open("w") as f:
         json.dump(valid_scenarios, f, indent=2)
 
@@ -82,9 +83,9 @@ if __name__ == "__main__":
         help="Paths to the output data.",
     )
     parser.add_argument(
-        "--summary_filepath",
+        "--summary_path",
         type=Path,
-        default="/datasets/waymo/causal_agents/valid_labels.json",
+        default="/datasets/waymo/causal_agents/",
         help="Paths to the output data.",
     )
     args = parser.parse_args()

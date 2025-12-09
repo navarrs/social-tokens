@@ -51,7 +51,7 @@ def run(  # noqa: PLR0913
     perc_selected = percentage * 100
     print(f"Input data directory has {n_input_files} files. {n_selected} ({perc_selected}%) will be selected.")
     meta = {
-        "input_data_dir": input_data_path,
+        "input_data_dir": str(input_data_path),
         "total_input_files": n_input_files,
         "percentage_selected": int(perc_selected),
         "total_selected_files": n_selected,
