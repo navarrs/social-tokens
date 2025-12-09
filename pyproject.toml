@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "scene-tokens"
 version = "0.1.0"
-requires-python = ">3.11, <3.13"
+requires-python = ">3.10, <3.13"
 authors = [
   {name = "Ingrid Navarro", email = "inavarro@stackav.com"},
 ]
@@ -166,3 +166,21 @@ lines-after-imports = 2
 
 [tool.flake8]
 max-line-length = 120
+
+[tool.pyright]
+pythonVersion = "3.12"
+include = ["src"]
+exclude = [
+  # keep-sorted start
+  "**/__pycache__",
+  "src",
+  "src/scenetokens/datasets/base_dataset.py",
+  "src/scenetokens/models/components",
+  "src/scenetokens/utils/data_utils.py",
+  "src/scenetokens/utils/instantiators.py",
+  "src/scenetokens/utils/scenario_visualizers/unitraj_viz_utils.py",
+  "src/scripts/causal_labels_pb2.py",
+  "src/scripts/waymo_data_processing.py",
+  "tmp/**",
+  # keep-sorted end
+]
