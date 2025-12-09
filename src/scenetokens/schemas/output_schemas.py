@@ -10,7 +10,7 @@ from pydantic_tensor.backend.torch import TorchTensor
 from pydantic_tensor.types import Float, Int
 
 
-class TokenizationOutput(BaseModel):
+class TokenizationOutput(BaseModel):  # pyright: ignore[reportUntypedBaseClass]
     """Encapsulates the output values of the Tokenizers defined in 'models/scene/tokenizers'.
     NOTE: The output values don't have a specific dimension yet, since the exact output values are still in development.
 
@@ -32,7 +32,7 @@ class TokenizationOutput(BaseModel):
     loss: Tensor[TorchTensor, Any, Float] | None = None
 
 
-class TrajectoryDecoderOutput(BaseModel):
+class TrajectoryDecoderOutput(BaseModel):  # pyright: ignore[reportUntypedBaseClass]
     """Encapsulates the output values of the MotionDecoder defined in 'models/scene/decoder.py'.
     NOTE: The output values don't have a specific dimension yet, since the exact output values are still in development.
 
@@ -46,7 +46,7 @@ class TrajectoryDecoderOutput(BaseModel):
     mode_logits: Tensor[TorchTensor, Any, Float] | None = None
 
 
-class CausalOutput(BaseModel):
+class CausalOutput(BaseModel):  # pyright: ignore[reportUntypedBaseClass]
     """Encapsulates causal output values.
 
     Attributes:
@@ -62,7 +62,7 @@ class CausalOutput(BaseModel):
     causal_logits: Tensor[TorchTensor, Any, Float] | None = None
 
 
-class ScenarioEmbedding(BaseModel):
+class ScenarioEmbedding(BaseModel):  # pyright: ignore[reportUntypedBaseClass]
     """Encapsulates the output values of the ScenarioEmbedded defined in 'models/scene/embedder.py'.
 
     Attributes:
@@ -74,7 +74,7 @@ class ScenarioEmbedding(BaseModel):
     scenario_dec: Tensor[TorchTensor, Any, Float]
 
 
-class ModelOutput(BaseModel):
+class ModelOutput(BaseModel):  # pyright: ignore[reportUntypedBaseClass]
     """Encapsulates all model outputs decoded values of a scenario defined in 'models'.
 
     Attributes:
@@ -94,5 +94,5 @@ class ModelOutput(BaseModel):
     dataset_name: list[str]
     scenario_id: list[str]
     agent_ids: Tensor[TorchTensor, Any, Int]
-    # agent_scores: Tensor[TorchTensor, Any, Float]
-    scene_score: Tensor[TorchTensor, Any, Float]
+    agent_scores: Tensor[TorchTensor, Any, Float] | None = None
+    scene_score: Tensor[TorchTensor, Any, Float] | None = None

@@ -56,3 +56,5 @@ exp_name: ${paths.tag}_${model.config.model_name}${sweep_type}
 sample_selection_strategy: all # either of 'all', 'random_drop', 'token_random_drop', 'simple_token_jaccard_drop', 'gumbel_token_jaccard_drop'
 sample_selection_path: null # need to specify the path where the sample selection file is saved to
 sample_selection_filepath: ${sample_selection_path}/${sample_selection_strategy}_sample_selection.json
+
+overwrite_cache: false

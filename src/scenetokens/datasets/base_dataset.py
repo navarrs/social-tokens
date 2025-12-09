@@ -18,8 +18,8 @@ from torch.utils.data import Dataset
 
 from scenetokens.utils import data_utils
 from scenetokens.utils.constants import BIG_EPSILON, DataSplits, SampleSelection
-from characterization.features.safeshift_features import SafeShiftFeatures
-from characterization.scorer.safeshift_scorer import SafeShiftScorer
+# from characterization.features.safeshift_features import SafeShiftFeatures
+# from characterization.scorer.safeshift_scorer import SafeShiftScorer
 from characterization.schemas import Scenario, AgentData, TracksToPredict, StaticMapData, ScenarioMetadata
 from characterization.utils.common import AgentType, AgentTrajectoryMasker
 
@@ -33,7 +33,6 @@ class BaseDataset(Dataset, ABC):
         self.split = config.split
         self.config = config
         self.num_data_to_consider = config.num_data_to_consider
-        self.starting_frame = config.starting_frame
         self.past_len = config.past_len
         self.future_len = config.future_len
         self.current_time_idx = self.past_len - 1
@@ -41,8 +40,8 @@ class BaseDataset(Dataset, ABC):
         self.subset_data_tag = None
 
         # Scenario characterizers
-        self.scenario_features_processor = SafeShiftFeatures(config.scenario_characterization)
-        self.scenario_scores_processor = SafeShiftScorer(config.scenario_characterization)
+        # self.scenario_features_processor = SafeShiftFeatures(config.scenario_characterization)
+        # self.scenario_scores_processor = SafeShiftScorer(config.scenario_characterization)
 
         if self.config.load_data:
             match self.split:
@@ -95,18 +94,17 @@ class BaseDataset(Dataset, ABC):
             else:
                 print("Creating cache...")
                 summary_list, mapping = self.get_dataset_summary(data_path)
-
                 if self.cache_path.exists():
                     shutil.rmtree(self.cache_path)
                 self.cache_path.mkdir(parents=True, exist_ok=True)
 
                 cpu_count = os.cpu_count()
-                process_num = cpu_count // 2 if cpu_count is not None else 1
+                process_num = cpu_count // 2 if cpu_count is not None  and cpu_count > 1 else 1
                 print(f"Using {process_num} processes to load data...")
 
-                data_splits = np.array_split(summary_list, process_num)
+                summary_splits = np.array_split(summary_list, process_num)
                 data_splits = [
-                    (data_path, mapping, list(data_splits[i]), self.subset_data_tag) for i in range(process_num)
+                    (data_path, mapping, list(summary_splits[i]), self.subset_data_tag) for i in range(process_num)
                 ]
 
                 # save the data_splits in a tmp directory
@@ -195,7 +193,7 @@ class BaseDataset(Dataset, ABC):
                 del output
         return file_list
 
-    def process_scenario(self, data_path: str, mapping: dict, file_name: str) -> dict:
+    def process_scenario(self, data_path: str, mapping: dict, file_name: str) -> dict | None:
         """Reads and processes a custom scenario."""
         scenario = self.read_scenario(data_path, mapping, file_name)
         # TODO: resolve bare except from Unitraj.
@@ -205,10 +203,10 @@ class BaseDataset(Dataset, ABC):
 
             # Compute SafeShift's scenario characterizations.
             # NOTE: Currently, they're computed from the global scenario representation.
-            scenario_features = self.scenario_features_processor.compute(scenario)
+            # scenario_features = self.scenario_features_processor.compute(scenario)
 
             # TODO: enable score re-computation with dynamic agent of interest
-            scenario_scores = self.scenario_scores_processor.compute(scenario, scenario_features)
+            # scenario_scores = self.scenario_scores_processor.compute(scenario, scenario_features)
 
             # Process intermediate format into final format.
             # NOTE: currently, this is Unitraj's scenario representation. It returns a dictionary not a schema as above.
@@ -220,10 +218,10 @@ class BaseDataset(Dataset, ABC):
             scenario = self.characterize_scenario(scenario)
 
             # Manually add safeshift scores to the final scenario output
-            for scenario_sample in scenario:
-                scenario_sample.update(scenario_scores.individual_scores.model_dump())
-                scenario_sample.update(scenario_scores.interaction_scores.model_dump())
-                scenario_sample.update(scenario_scores.safeshift_scores.model_dump())
+            # for scenario_sample in scenario:
+            #     scenario_sample.update(scenario_scores.individual_scores.model_dump())
+            #     scenario_sample.update(scenario_scores.interaction_scores.model_dump())
+            #     scenario_sample.update(scenario_scores.safeshift_scores.model_dump())
 
         except Exception as e:  # noqa: BLE001
             print(f"Warning: {e} in {file_name}")

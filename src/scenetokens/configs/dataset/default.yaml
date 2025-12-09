@@ -1,0 +1,39 @@
+_target_: scenetokens.datasets.base_dataset.BaseDataset
+config:
+  load_data: true
+  split: null
+  num_data_to_consider: null
+
+  past_len: ${scenario.past_len}
+  future_len: ${scenario.future_len}
+
+  train_data_path: ${paths.train_data_path}
+  train_data_tag: ${paths.train_data_tag}
+  val_data_path: ${paths.val_data_path}
+  val_data_tag: ${paths.val_data_tag}
+  test_data_path: ${paths.test_data_path}
+  test_data_tag: ${paths.test_data_tag}
+
+  sample_selection_strategy: ${sample_selection_strategy}
+  sample_selection_filepath: ${sample_selection_filepath}
+
+  temp_path: ${paths.temp_path}
+  cache_path: ${paths.data_cache_path}
+  use_cache: false
+  overwrite_cache: ${overwrite_cache}
+  store_data_in_memory: false
+
+  masked_attributes: ['z_axis', 'size']
+  object_type: ['TYPE_VEHICLE', 'TYPE_PEDESTRIAN', 'TYPE_CYCLIST']
+  line_type: [ 'lane','stop_sign','road_edge','road_line','crosswalk','speed_bump' ]
+
+  only_train_on_ego: true
+  trajectory_sample_interval: 1
+  max_num_agents: ${model.config.max_num_agents}
+  max_num_roads: ${model.config.max_num_roads}
+  max_points_per_lane: ${model.config.max_points_per_lane}
+  map_range: ${model.config.map_range}
+  total_map_types: 20 # NOTE: not sure where the value is coming from
+  center_offset_of_map: [30.0, 0.0]
+
+  causal_labels_path: ${paths.causal_labels_path}

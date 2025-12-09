@@ -5,7 +5,7 @@ root_dir: ${oc.env:PROJECT_ROOT}
 tag: 'mini'
 
 base_path: /data/driving/${scenario.dataset_name}
-data_cache_path: ${paths.base_path}/${paths.tag}/data_cache
+data_cache_path: ${paths.base_path}/data_cache
 experiment_cache_path: ${paths.base_path}/${paths.tag}/model_cache
 temp_path: "temp"
 
@@ -24,3 +24,4 @@ ckpt_path: ${paths.experiment_cache_path}/${paths.experiment_dir}/ckpts
 batch_cache_path: ${paths.experiment_cache_path}/${paths.experiment_dir}/batch_cache
 analysis_path: ${paths.experiment_cache_path}/${paths.experiment_dir}/analysis
 viz_path: ${paths.experiment_cache_path}/${paths.experiment_dir}/viz
+causal_labels_path: ${paths.base_path}/processed_labels/causal_labels.json

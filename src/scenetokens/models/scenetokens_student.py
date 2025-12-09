@@ -122,8 +122,8 @@ class SceneTokensStudent(BaseModel):
             dataset_name=inputs["dataset_name"],
             scenario_id=inputs["scenario_id"],
             agent_ids=inputs["obj_ids"].squeeze(-1).squeeze(-1),
-            # agent_scores=inputs['agent_scores'],
-            scene_score=inputs["scene_score"],
+            agent_scores=inputs.get("agent_scores", None),
+            scene_score=inputs.get("scene_score", None),
         )
 
     def embed(self, ego_agent: torch.Tensor, other_agents: torch.Tensor, roads: torch.Tensor) -> ScenarioEmbedding:
