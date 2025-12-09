@@ -28,11 +28,12 @@ config:
   line_type: [ 'lane','stop_sign','road_edge','road_line','crosswalk','speed_bump' ]
 
   only_train_on_ego: true
+  trajectory_sample_interval: 1
   max_num_agents: ${model.config.max_num_agents}
   max_num_roads: ${model.config.max_num_roads}
   max_points_per_lane: ${model.config.max_points_per_lane}
   map_range: ${model.config.map_range}
-  total_map_types: ${model.config.map_input_size} # NOTE: not sure about this value
+  total_map_types: 20 # NOTE: not sure where the value is coming from
   center_offset_of_map: [30.0, 0.0]
 
   causal_labels_path: ${paths.causal_labels_path}
