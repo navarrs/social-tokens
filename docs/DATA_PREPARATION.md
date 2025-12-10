@@ -45,11 +45,11 @@ uv run waymo_data_processing.py --raw_data_path /datasets/waymo/raw/mini --proc_
 
 **NOTE:** Most of these steps require Python 3.10 to run because they depend on the `waymo_open_dataset` package.
 
-1. Download [CausalAgents](https://github.com/google-research/causal-agents/tree/main?tab=readme-ov-file) dataset:
+1. Download [CausalAgents](https://github.com/google-research/causal-agents/tree/main?tab=readme-ov-file) labels:
 ```bash
 mkdir /datasets/waymo/causal_agents
 cd /datasets/waymo/causal_agents
-gsutil cp -r "gs://waymo_open_dataset_causal_agents" .
+gsutil cp -r "gs://waymo_open_dataset_causal_agents/cusal_labels.tfrecord" .
 ```
 
 2. Install `protobuf`.
@@ -87,6 +87,14 @@ uv run waymo_data_selection.py --parallel --input_data_path /datasets/waymo/raw/
 uv run waymo_data_processing.py --raw_data_path /datasets/waymo/raw/mini_causal --proc_data_path /datasets/waymo/processed/mini_causal --split training
 uv run waymo_data_processing.py --raw_data_path /datasets/waymo/raw/mini_causal --proc_data_path /datasets/waymo/processed/mini_causal --split validation
 uv run waymo_data_processing.py --raw_data_path /datasets/waymo/raw/mini_causal --proc_data_path /datasets/waymo/processed/mini_causal --split testing
+```
+
+- Prepare the causal benchmark:
+```bash
+uv run create_causal_benchmark.py --causal_data_path /datasets/waymo/processed/mini_causal --output_data_path /datasets/waymo/processed --causal_labels_path /datasets/waymo/causal_agents/processed_labels/ --benchmark remove_causal
+uv run create_causal_benchmark.py --causal_data_path /datasets/waymo/processed/mini_causal --output_data_path /datasets/waymo/processed --causal_labels_path /datasets/waymo/causal_agents/processed_labels/ --benchmark remove_noncausal
+uv run create_causal_benchmark.py --causal_data_path /datasets/waymo/processed/mini_causal --output_data_path /datasets/waymo/processed --causal_labels_path /datasets/waymo/causal_agents/processed_labels/ --benchmark remove_noncausalequal
+uv run create_causal_benchmark.py --causal_data_path /datasets/waymo/processed/mini_causal --output_data_path /datasets/waymo/processed --causal_labels_path /datasets/waymo/causal_agents/processed_labels/ --benchmark remove_static
 ```
 
 7. **[Optional Sanity Check]**: Verify causal agent IDs exist in processed data:
