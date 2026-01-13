@@ -15,7 +15,9 @@ class SampleSelection(Enum):
     RANDOM_DROP = "random_drop"
     TOKEN_RANDOM_DROP = "token_random_drop"  # noqa: S105
     SIMPLE_TOKEN_JACCARD_DROP = "simple_token_jaccard_drop"  # noqa: S105
+    SIMPLE_TOKEN_HAMMING_DROP = "simple_token_hamming_drop"  # noqa: S105
     GUMBEL_TOKEN_JACCARD_DROP = "gumbel_token_jaccard_drop"  # noqa: S105
+    GUMBEL_TOKEN_HAMMING_DROP = "gumbel_token_hamming_drop"  # noqa: S105
 
 
 class DataSplits(Enum):

@@ -9,10 +9,25 @@ model:
   config:
     sample_selection: true
 
-selection_strategy: simple_token_jaccard_drop # either of 'random_drop', 'token_random_drop' or 'simple_token_jaccard_drop' or 'gumbel_token_jaccard_drop'
-min_percentage: 0.75
-min_percentage_per_class: 0.05 # percentage threshold to determine if dropping elements of a class
-sorting_strategy: 'gumbel' # either of 'simple' or 'gumbel'
+selection_strategies:
+  - random_drop
+  - token_random_drop
+  - simple_token_jaccard_drop
+  - simple_token_hamming_drop
+  - gumbel_token_jaccard_drop
+  - gumbel_token_hamming_drop
+selection_strategy: null
+percentages_to_keep:
+  - 0.45
+  - 0.55
+  - 0.65
+  - 0.75
+  - 0.85
+  - 0.95
+percentage_to_keep: null # percentage threshold to determine if dropping elements
+sorting_strategy: 'simple'
+alignment_strategy: 'jaccard' # alignment metric to use 'jaccard' or 'hamming'
+min_percentage_per_class: 0.012 # percentage threshold to determine if dropping elements of a class
 
 # General Parameters
 task_name: 'sample_selection' # Reference task name
@@ -31,6 +46,7 @@ paths:
   # experiment_dir: causal-benchmark-labeled_scenetokens-student_2025-11-06_23-23-37
   # note: old student experiment
   # experiment_dir: causal-benchmark-labeled_scenetokens-student_token-conditioning-sweep_2025-08-15_12-35-50
-
   # note: current teacher unmasked experiment
-  experiment_dir: causal-benchmark-labeled_scenetokens-teacher-unmasked_2025-11-07_14-51-36
+  # experiment_dir: causal-benchmark-labeled_scenetokens-teacher-unmasked_2025-11-07_14-51-36
+
+  experiment_dir: causal-benchmark-labeled_scenetokens-student_2025-12-10_11-00-03

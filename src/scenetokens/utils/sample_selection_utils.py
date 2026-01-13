@@ -37,7 +37,7 @@ def random_selection(config: DictConfig, model_outputs: dict[str, output.ModelOu
     random.seed(config.seed)
     random.shuffle(scenario_ids)
 
-    min_scenarios_to_keep = int(config.min_percentage * num_scenarios)
+    min_scenarios_to_keep = int(config.percentage_to_keep * num_scenarios)
     keep = scenario_ids[:min_scenarios_to_keep]
     drop = scenario_ids[min_scenarios_to_keep:]
     return {"keep": keep, "num_to_keep": len(keep), "drop": drop, "num_to_drop": len(drop)}
@@ -59,20 +59,32 @@ def random_selection_per_token(config: DictConfig, model_outputs: dict[str, outp
     num_scenarios, num_modes = scenario_classes.shape
     classes_dict = {"scenario_id": scenario_ids, "scenario_class": scenario_classes[:, 0]}
     classes_df = pd.DataFrame(classes_dict)
+
     percentage_per_class = (classes_df["scenario_class"].value_counts() / num_scenarios).to_frame(name="percentage")
-    min_scenarios_to_keep = int(config.min_percentage_per_class * num_scenarios)
+    # NOTE: we drop less than num_scenarios_to_drop, because we don't ceil the number of samples to keep per class, to
+    # favor tokens that are heavily underrepresented.
+    num_scenarios_to_drop = int((1 - config.percentage_to_keep) * num_scenarios)
+
+    min_percentage_per_class = config.min_percentage_per_class
+    valid_percentages_per_class = percentage_per_class[percentage_per_class["percentage"] > min_percentage_per_class]
+    total_valid_percentage = valid_percentages_per_class["percentage"].sum()
 
     selected_samples = {}
     for _, row in percentage_per_class.iterrows():
         scenario_class = row.name
         scenario_ids_in_class = classes_df["scenario_id"][classes_df["scenario_class"] == scenario_class].tolist()
-        percentage = row.percentage
-        if percentage > config.min_percentage_per_class:
-            # Select samples to drop
-            random.seed(config.seed)
-            random.shuffle(scenario_ids_in_class)
-            keep = scenario_ids_in_class[:min_scenarios_to_keep]
-            drop = scenario_ids_in_class[min_scenarios_to_keep:]
+
+        num_to_drop = (
+            int(row.percentage * num_scenarios_to_drop / total_valid_percentage)
+            if row.percentage > min_percentage_per_class
+            else 0
+        )
+
+        random.seed(config.seed)
+        random.shuffle(scenario_ids_in_class)
+        if num_to_drop > 0:
+            drop = scenario_ids_in_class[:num_to_drop]
+            keep = scenario_ids_in_class[num_to_drop:]
             selected_samples[scenario_class] = {
                 "keep": keep,
                 "num_to_keep": len(keep),
@@ -84,6 +96,7 @@ def random_selection_per_token(config: DictConfig, model_outputs: dict[str, outp
                 "keep": scenario_ids_in_class,
                 "num_to_keep": len(scenario_ids_in_class),
                 "drop": [],
+                "num_to_drop": 0,
             }
 
     # Get combined list
@@ -156,7 +169,7 @@ def weighted_sorting_gumbel(
     uniform = generator.random(num_samples)
 
     # Calculate the exponent term (1 / W_i), if the weight of a sample is low its exponent to will be high.
-    exponent = np.where(weights > 0, 1.0 / weights, large_exponent)
+    exponent = np.where(weights > 0.0, 1.0 / weights, large_exponent)
 
     # Calculate the priority values (uniform ** (1 / W_i)). Elements in 'uniform' raised to a large power (inf) will
     # result in 0.0.
@@ -169,7 +182,9 @@ def weighted_sorting_gumbel(
     return samples[sorted_indices], weights[sorted_indices]
 
 
-def jaccard_selection_per_token(config: DictConfig, model_outputs: dict[str, output.ModelOutput]) -> dict[str, Any]:
+def alignment_based_selection_per_token(
+    config: DictConfig, model_outputs: dict[str, output.ModelOutput]
+) -> dict[str, Any]:
     """A sample selection strategy that randomly keeps a specified percentage of the scenarios for each class that has
     more than a desired minimum percentage.
 
@@ -181,33 +196,55 @@ def jaccard_selection_per_token(config: DictConfig, model_outputs: dict[str, out
         dict[str, Any]: a dictionary containing the IDs of the samples (scenarios) to keep or drop for training.
     """
     num_scenarios = len(model_outputs)
+    # Get the groups by token and compute the each group's mode
     tokenization_groups, group_scenario_ids = get_tokenization_groups(config, model_outputs)
     group_modes = get_group_modes(tokenization_groups)
-    min_scenarios_to_keep = int(config.min_percentage_per_class * num_scenarios)
 
-    # generator instance
-    generator = default_rng(config.seed)
+    # Compute the group percentages and get the valid percentages
+    group_percentages = {
+        base_token: len(token_group) / num_scenarios
+        for base_token, token_group in tokenization_groups.items()
+        if token_group is not None
+    }
+    min_percentage_per_class = config.min_percentage_per_class
+    valid_percentages_per_class = {k: v for k, v in group_percentages.items() if v > min_percentage_per_class}
+    total_valid_percentage = sum(valid_percentages_per_class.values())
+
+    num_scenarios_to_drop = int((1 - config.percentage_to_keep) * num_scenarios)
 
     selected_samples = {}
     for base_token, token_group in tokenization_groups.items():
         if token_group is None:
             continue
-        group_percentage = len(token_group) / num_scenarios
+        group_percentage = group_percentages[base_token]
         scenario_ids = group_scenario_ids[base_token].squeeze(axis=1)
-        if group_percentage > config.min_percentage_per_class:
-            scores = compute_alignment_scores(group_modes[base_token], token_group, "jaccard")
+        num_to_drop = (
+            int(group_percentage * num_scenarios_to_drop / total_valid_percentage)
+            if group_percentage > min_percentage_per_class
+            else 0
+        )
+
+        if num_to_drop > 0:
+            # generator instance
+            generator = default_rng(config.seed)
+            scores = compute_alignment_scores(group_modes[base_token], token_group, config.alignment_strategy)
             # Get the scenario IDs (pseudo-randomly) sorted by their score, prioritizing samples with lower alignment to
-            # the target value (sort_ascending=False), i.e., samples that are potentially rare w.r.t their group.
+            # the target value, i.e., samples that are potentially rare w.r.t their group.
             if config.sorting_strategy == "gumbel":
                 # Highly aligned instances will be given a score of (1-score) to deprioritize them for selection, but we
-                # don't want to be too harsh so as to completely zero-out-them (large_exponent=8)
+                # don't want to be too harsh so as to completely zero-out-them (large_exponent=8).
+                # Since we want to drop the samples at the beginning of the sorted list and we're using the inverse of
+                # the score, we sort in ascending order.
                 sorted_scenario_ids, _ = weighted_sorting_gumbel(
-                    scenario_ids, 1.0 - scores, generator, sort_ascending=False, large_exponent=8.0
+                    scenario_ids, 1.0 - scores, generator, sort_ascending=True, large_exponent=8.0
                 )
             else:
-                sorted_scenario_ids, _ = weighted_sorting(scenario_ids, scores)
-            keep = sorted_scenario_ids[:min_scenarios_to_keep].tolist()
-            drop = sorted_scenario_ids[min_scenarios_to_keep:].tolist()
+                # Since we want to drop the samples at the beginning of the sorted list and we're using the scores
+                # directly, we sort in descending order.
+                sorted_scenario_ids, _ = weighted_sorting(scenario_ids, scores, sort_ascending=False)
+
+            drop = sorted_scenario_ids[:num_to_drop].tolist()
+            keep = sorted_scenario_ids[num_to_drop:].tolist()
             selected_samples[base_token] = {
                 "keep": keep,
                 "num_to_keep": len(keep),
@@ -251,14 +288,24 @@ def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.Mod
             sample_selection = random_selection_per_token(config, model_outputs)
         case SampleSelection.SIMPLE_TOKEN_JACCARD_DROP:
             config.sorting_strategy = "simple"
-            sample_selection = jaccard_selection_per_token(config, model_outputs)
+            config.alignment_strategy = "jaccard"
+            sample_selection = alignment_based_selection_per_token(config, model_outputs)
+        case SampleSelection.SIMPLE_TOKEN_HAMMING_DROP:
+            config.sorting_strategy = "simple"
+            config.alignment_strategy = "hamming"
+            sample_selection = alignment_based_selection_per_token(config, model_outputs)
         case SampleSelection.GUMBEL_TOKEN_JACCARD_DROP:
             config.sorting_strategy = "gumbel"
-            sample_selection = jaccard_selection_per_token(config, model_outputs)
+            config.alignment_strategy = "jaccard"
+            sample_selection = alignment_based_selection_per_token(config, model_outputs)
+        case SampleSelection.GUMBEL_TOKEN_HAMMING_DROP:
+            config.sorting_strategy = "gumbel"
+            config.alignment_strategy = "hamming"
+            sample_selection = alignment_based_selection_per_token(config, model_outputs)
         case _:
             error_message = f"Unsupported selection strategy: {selection_strategy}"
             raise ValueError(error_message)
 
-    output_filepath = output_path / f"{selection_strategy.value}_sample_selection.json"
+    output_filepath = output_path / f"sample_selection_{selection_strategy.value}_{config.percentage_to_keep}.json"
     with output_filepath.open("w") as f:
         json.dump(sample_selection, f, indent=2)

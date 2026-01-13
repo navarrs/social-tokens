@@ -10,6 +10,7 @@ Example usage:
 See `docs/ANALYSIS.md` and `configs/sample_selection.yaml` for more argument details.
 """
 
+from itertools import product
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -96,7 +97,14 @@ def main(cfg: DictConfig) -> None:
     # Run sample selection/
     output_path = Path(cfg.paths.meta_path)
     output_path.mkdir(parents=True, exist_ok=True)
-    utils.run_sample_selection(cfg, batches, output_path)
+    log.info("Saving sample selection lists to %s", str(output_path))
+    for selection_strategy, percentage_to_keep in product(cfg.selection_strategies, cfg.percentages_to_keep):
+        cfg.selection_strategy = selection_strategy
+        cfg.percentage_to_keep = percentage_to_keep
+        log.info(
+            "Running sample selection with strategy: %s, percentage_to_keep: %s", selection_strategy, percentage_to_keep
+        )
+        utils.run_sample_selection(cfg, batches, output_path)
 
 
 if __name__ == "__main__":
