@@ -11,7 +11,7 @@ config:
 
   # Scenario Classifier Configuration
   use_reconstructed: false
-  token_conditioning: true
+  token_conditioning: false
   tokenizer_name: quantized
   tokenizer_tags: num-tokens-${model.config.tokenizer.num_tokens}_normalize-${model.config.tokenizer.normalize}
   tokenizer:
@@ -20,7 +20,7 @@ config:
     hidden_size: 256
     num_tokens: ${model.config.num_classes}
     reduction_factor: 2
-    normalize: true
+    normalize: false
 
   motion_decoder_tags: num-tokens-${model.config.tokenizer.num_tokens}_reconstructed-conditioning-${model.config.use_reconstructed}_token-conditioning-${model.config.token_conditioning}
   motion_decoder:

@@ -18,7 +18,7 @@ run_group_uniqueness_analysis: false
 normalize_counts: 'group_scenarios' # either of 'all_scenarios' or 'group_scenarios' or 'none'
 
 # Inter-group uniqueness
-run_intergroup_analysis: true
+run_intergroup_analysis: false
 
 # Produces a visualization of the scenario embeddings using dimensionality reduction methods.
 run_dim_reduction_analysis: false

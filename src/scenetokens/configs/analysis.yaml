@@ -2,7 +2,7 @@
 defaults:
   - train.yaml
   - _self_
-  - analysis: tokenization
+  - analysis: metrics
   - visualization: viz_static
   - override dataset: waymo_analysis.yaml
 
@@ -14,16 +14,19 @@ num_scenarios: null # Number of scenarios to consider for analysis experiment. I
 select_mode: true # If 'true' selects mode for visualization
 seed: 42 # Seed for random generators
 
-# split: train # Specify split to consider 'train', 'val' or 'test'
-# scenarios_path: ${paths.base_path}/processed/mini_causal/training # Specify path to input scenarios
+output_path: ./out
 
-split: test # Specify split to consider 'train', 'val' or 'test'
-scenarios_path: ${paths.base_path}/processed/mini_causal/testing # Specify path to input scenarios
+split: train # Specify split to consider 'train', 'val' or 'test'
+scenarios_path: ${paths.base_path}/processed/mini_causal/training # Specify path to input scenarios
+
+# split: test # Specify split to consider 'train', 'val' or 'test'
+# scenarios_path: ${paths.base_path}/processed/mini_causal/testing # Specify path to input scenarios
 
 # Specify name of experiment to consider
 paths:
   # note: current teacher unmasked experiment
-  experiment_dir: causal-benchmark-labeled_scenetokens-teacher-unmasked_2025-11-07_14-51-36
+  # experiment_dir: causal-benchmark-labeled_scenetokens-teacher-unmasked_2025-11-07_14-51-36
+  experiment_dir: causal-benchmark-labeled_scenetokens-student_2025-12-10_11-00-03
 
 # Experiment Reference:
 # Wayformer Baseline on Full Mini-Causal Dataset: causal-benchmark-labeled_wayformer_2025-11-04_22-59-23
@@ -38,4 +41,4 @@ paths:
 # causal-benchmark-labeled_scenetokens-teacher_2025-11-07_14-51-36
 
 # Best Teacher-Unmasked Model:
-experiment_dir: causal-benchmark-labeled_scenetokens-teacher-unmasked_2025-11-07_14-51-36
+# experiment_dir: causal-benchmark-labeled_scenetokens-teacher-unmasked_2025-11-07_14-51-36

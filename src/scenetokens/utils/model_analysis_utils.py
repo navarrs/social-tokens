@@ -44,7 +44,8 @@ def get_scenario_classes_best_mode(
 
         scenario_ids.append(scenario_id)
         scenario_classes.append(indices[selected_mode])
-        scenario_scores.append(model_output.scene_score.value.detach().cpu().item())
+        if model_output.scene_score is not None:
+            scenario_scores.append(model_output.scene_score.value.detach().cpu().item())
 
     return np.asarray(scenario_ids), np.array(scenario_classes).reshape(-1, 1), np.array(scenario_scores), num_classes
 

@@ -9,6 +9,7 @@ config:
 
   num_classes: 100
   num_queries: 38
+  num_labels: 2
 
   scenario_embedder:
     _target_: scenetokens.models.scene.perceiver_embedder.PerceiverEmbedder
