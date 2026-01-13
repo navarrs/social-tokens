@@ -146,3 +146,17 @@ cp -r safeshift/validation safeshit_causal
 cd scene-tokens/src/scripts
 uv run verify_safeshift_causal_splits.py
 ```
+
+## Prepare the Ego-SafeShift-Causal (WOMD) Dataset
+
+This benchmark is similar to **SafeShift-Causal**, but the main difference is that scenarios are scored only from the perspective of the ego-agent. We used the [ScenarioCharacterization](https://github.com/navarrs/ScenarioCharacterization) package to compute the scenario scores and produce the meta file `scenario_to_scores_mapping.csv` required by the benchmark creation script.
+
+1. Follow steps 1 through 6 on preparing the Causal Agents dataset above.
+
+2. Make sure you have [this](https://drive.google.com/file/d/1Ptv1JIM0qymo7180_a5svLZJXWn03yQx/view?usp=drive_link) file in the `./meta` folder. To generate this file follow the scoring [instructions](https://github.com/navarrs/ScenarioCharacterization/blob/main/docs/CHARACTERIZATION.md).
+
+3. Create the benchmark:
+```bash
+cd scene-tokens/src/scripts
+uv run create_ego_safeshift_benchmark.py
+```

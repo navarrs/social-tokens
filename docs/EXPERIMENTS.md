@@ -58,6 +58,15 @@ Run as:
 uv run -m scenetokens.train model=[model_name] paths=safeshift_causal
 ```
 
+### Experiment 6: Ego-SafeShift-Causal Generalization
+- Train/Validate on the Ego-SafeShift **In-Distribution** subset. See the [data preparation](./DATA_PREPARATION.md#prepare-the-ego-safeshift-womd-dataset) for more details on how to get the SafeShift splits.
+- Evaluate on the Ego-SafeShift's **Out-of-Distribution** subset.
+
+Run as:
+```bash
+uv run -m scenetokens.train model=[model_name] paths=ego_safeshift_causal
+```
+
 # Model types
 
 Current model versions are:
