@@ -343,7 +343,7 @@ class BaseModel(LightningModule, ABC):
         if causal_output is not None:
             labels = causal_output.causal_gt.value
             predictions = causal_output.causal_pred.value
-            tp, tn, fp, fn = metric_utils.compute_confusion_matrix(predictions, labels)
+            tp, tn, fp, fn = metric_utils.compute_binary_confusion_matrix(predictions, labels)
             metric_dict["causalTP"] = tp.cpu().detach().numpy()
             metric_dict["causalTN"] = tn.cpu().detach().numpy()
             metric_dict["causalFP"] = fp.cpu().detach().numpy()
@@ -353,6 +353,28 @@ class BaseModel(LightningModule, ABC):
             metric_dict["precision"] = precision.cpu().detach().numpy()
             metric_dict["recall"] = recall.cpu().detach().numpy()
             metric_dict["f1Score"] = f1_score.cpu().detach().numpy()
+
+        safety_output = outputs.safety_output
+        if safety_output is not None:
+            indvidual_labels = safety_output.individual_safety_gt.value.squeeze(-1)
+            indvidual_predictions = safety_output.individual_safety_pred.value
+            num_classes = safety_output.individual_safety_pred_probs.value.shape[-1]
+            precision, recall, f1_score = metric_utils.compute_multiclass_accuracy(
+                indvidual_labels, indvidual_predictions, num_classes
+            )
+            metric_dict["individualPrecision"] = precision.cpu().detach().numpy()
+            metric_dict["individualRecall"] = recall.cpu().detach().numpy()
+            metric_dict["individualF1Score"] = f1_score.cpu().detach().numpy()
+
+            interaction_labels = safety_output.interaction_safety_gt.value.squeeze(-1)
+            interaction_predictions = safety_output.interaction_safety_pred.value
+            num_classes = safety_output.interaction_safety_pred_probs.value.shape[-1]
+            precision, recall, f1_score = metric_utils.compute_multiclass_accuracy(
+                interaction_labels, interaction_predictions, num_classes
+            )
+            metric_dict["interactionPrecision"] = precision.cpu().detach().numpy()
+            metric_dict["interactionRecall"] = recall.cpu().detach().numpy()
+            metric_dict["interactionF1Score"] = f1_score.cpu().detach().numpy()
 
         # TODO: review these metrics
         # If training a model with a scenario classification head, log perplexity and mutual information.
