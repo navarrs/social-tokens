@@ -2,7 +2,6 @@ import json
 import multiprocessing
 import pickle  # nosec B403
 from functools import partial
-from itertools import product
 from pathlib import Path
 from typing import Any
 
@@ -224,7 +223,7 @@ def _create_scenario(  # noqa: PLR0913
     input_filepath: Path,
     output_path: Path,
     causal_labels_path: Path,
-    scenario_mapping: dict[str, dict[str, str]],
+    scenario_mapping: dict[str, Path],
     benchmark: str,
     random_generator: Generator,
 ) -> None:
@@ -234,8 +233,7 @@ def _create_scenario(  # noqa: PLR0913
         input_filepath (Path): Path to the input file.
         output_path (Path): Path to the output directory.
         causal_labels_path (Path): Path to the causal labels.
-        scenario_mapping (dict[str, str]): Mapping from scenario_id to split and shard. Used to determine the output
-            filepath.
+        scenario_mapping (dict[str, Path]): Mapping from scenario_id to split Path which determines the output filepath.
         benchmark (str): Benchmark name.
         random_generator (Generator): Random number generator.
     """
@@ -254,9 +252,8 @@ def _create_scenario(  # noqa: PLR0913
     with causal_labels_filepath.open("r") as f:
         causal_labels = json.load(f)
 
-    split = scenario_mapping[scenario_id]["split"]
-    shard = scenario_mapping[scenario_id]["shard"]
-    output_filepath = output_path / split / shard / f"{scenario_id}.pkl"
+    split = scenario_mapping[scenario_id]
+    output_filepath = output_path / split / f"{scenario_id}.pkl"
 
     match benchmark:
         case "remove_causal":
@@ -299,19 +296,15 @@ def run(  # noqa: PLR0913
         if "infos" in filepath.stem:
             continue
         scenario_id = filepath.stem
-        scenario_mapping[scenario_id] = {
-            "shard": filepath.parent.stem,
-            "split": filepath.parent.parent.stem,
-        }
+        scenario_mapping[scenario_id] = filepath.parent.parent.stem
         filepaths.append(filepath)
 
     # Create the benchmark subdirectories.
     proc_data_path = output_data_path / benchmark
     print(f"Processing Waymo benchmark: {benchmark}")
     splits = ["training", "validation", "testing"]
-    shards = [f"shard_{i}" for i in range(10)]
-    for split, shard in product(splits, shards):
-        benchmark_subdir = proc_data_path / split / shard
+    for split in splits:
+        benchmark_subdir = proc_data_path / split
         benchmark_subdir.mkdir(parents=True, exist_ok=True)
         print(f"Creating benchmark subdir: {benchmark_subdir}")
 
@@ -339,16 +332,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--causal_data_path",
         type=Path,
-        default="/data/driving/waymo/processed/mini_causal/",
+        default="/datasets/waymo/processed/mini_causal/",
         help="Paths to the raw input data.",
     )
     parser.add_argument(
-        "--output_data_path", type=Path, default="/data/driving/waymo/processed/", help="Paths to the output data."
+        "--output_data_path", type=Path, default="/datasets/waymo/processed/", help="Paths to the output data."
     )
     parser.add_argument(
         "--causal_labels_path",
         type=Path,
-        default="/data/driving/waymo/causal_agents/processed_labels/",
+        default="/datasets/waymo/causal_agents/processed_labels/",
         help="Path to the causal labels.",
     )
     parser.add_argument(

@@ -1,7 +1,6 @@
 import multiprocessing
 import shutil
 from functools import partial
-from itertools import product
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +13,6 @@ def _get_scenario_mapping(
     scenario_ids: list[str],
     output_data_path: Path,
     split: str,
-    num_shards: int,
 ) -> dict[str, Path]:
     """Creates a mapping from scenario IDs to output file paths.
 
@@ -22,15 +20,13 @@ def _get_scenario_mapping(
         scenario_ids (list[str]): List of scenario IDs.
         output_data_path (Path): Path to the output data.
         split (str): Data split (e.g., 'training', 'validation', 'testing').
-        num_shards (int): Number of shards.
 
     Returns:
         dict[str, Path]: Mapping from scenario IDs to output file paths.
     """
     scenario_mapping = {}
-    for idx, scenario_id in enumerate(scenario_ids):
-        shard_id = idx % num_shards
-        output_filepath = output_data_path / split / f"shard_{shard_id}" / f"{scenario_id}"
+    for scenario_id in scenario_ids:
+        output_filepath = output_data_path / split / f"{scenario_id}"
         scenario_mapping[scenario_id] = output_filepath
     return scenario_mapping
 
@@ -90,9 +86,8 @@ def run(  # noqa: PLR0913
     # Create the benchmark subdirectories.
     print("Processing Ego-SafeShift benchmark")
     splits = ["training", "validation", "testing"]
-    shards = [f"shard_{i}" for i in range(10)]
-    for split, shard in product(splits, shards):
-        benchmark_subdir = output_data_path / split / shard
+    for split in splits:
+        benchmark_subdir = output_data_path / split
         benchmark_subdir.mkdir(parents=True, exist_ok=True)
         print(f"Creating benchmark subdir: {benchmark_subdir}")
 
@@ -106,16 +101,16 @@ def run(  # noqa: PLR0913
     random_generator.shuffle(train_val_scenarios)
     num_validation_scenarios = int(len(train_val_scenarios) * (validation_percentage / 100.0))
     validation_scenarios = train_val_scenarios[:num_validation_scenarios]
-    validation_scenario_mapping = _get_scenario_mapping(validation_scenarios, output_data_path, "validation", 10)
+    validation_scenario_mapping = _get_scenario_mapping(validation_scenarios, output_data_path, "validation")
     output_scenario_mapping.update(validation_scenario_mapping)
 
     training_scenarios = train_val_scenarios[num_validation_scenarios:]
-    training_scenario_mapping = _get_scenario_mapping(training_scenarios, output_data_path, "training", 10)
+    training_scenario_mapping = _get_scenario_mapping(training_scenarios, output_data_path, "training")
     output_scenario_mapping.update(training_scenario_mapping)
 
     # Get the testing scenarios as those above the cutoff score.
     testing_scenarios = scenario_scores_df[scenario_scores_df[score_type] >= cutoff_score]["scenario_ids"].tolist()
-    testing_scenario_mapping = _get_scenario_mapping(testing_scenarios, output_data_path, "testing", 10)
+    testing_scenario_mapping = _get_scenario_mapping(testing_scenarios, output_data_path, "testing")
     output_scenario_mapping.update(testing_scenario_mapping)
 
     # Create the scenario benchmark from the original WOMD subset.
@@ -143,13 +138,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--causal_data_path",
         type=Path,
-        default="/data/driving/waymo/processed/mini_causal/",
+        default="/datasets/driving/waymo/processed/mini_causal/",
         help="Paths to the raw input data.",
     )
     parser.add_argument(
         "--output_data_path",
         type=Path,
-        default="/data/driving/waymo/processed/causal_ego_safeshift",
+        default="/datasets/driving/waymo/processed/causal_ego_safeshift",
         help="Paths to the output data.",
     )
     parser.add_argument(

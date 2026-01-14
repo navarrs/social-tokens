@@ -735,15 +735,6 @@ def load_causal_agents_labels(causal_agents_labels_path, scenario_ids=None):
     return causal_agents_labels
 
 
-def get_scenario_ids(scenarios_path: str) -> list:
-    scenarios_path = Path(scenarios_path)
-    scenario_ids = []
-    for file in enumerate(scenarios_path.glob("*shard_*/*")):
-        scenario_id = str(file).split("/")[-1].split(".")[0]
-        scenario_ids.append(scenario_id)
-    return scenario_ids
-
-
 def save_cache(cache_infos: Any, filepath: Path) -> None:
     with filepath.open("wb") as f:
         pickle.dump(cache_infos, f)

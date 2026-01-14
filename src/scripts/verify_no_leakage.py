@@ -5,8 +5,6 @@ from collections import Counter
 from itertools import product
 from pathlib import Path
 
-from natsort import natsorted
-
 
 def run(base_data_path: Path, splits: list[str], meta_path: Path) -> None:
     assert base_data_path.exists(), f"Base data path {base_data_path} does not exist!"
@@ -16,11 +14,9 @@ def run(base_data_path: Path, splits: list[str], meta_path: Path) -> None:
         file_lists[split] = []
         print(f"Running {split} split")
         split_path = base_data_path / split
-        split_shards = natsorted([subdir for subdir in split_path.iterdir() if subdir.is_dir()])
-        for shard_path in split_shards:
-            shard_files = [file.name for file in shard_path.iterdir() if file.is_file()]
-            print(f"\tFound {len(shard_files)} scenarios in {shard_path}")
-            file_lists[split] += shard_files
+        files = [file for file in split_path.rglob("*.pkl") if file.is_file() and "infos" not in file.stem]
+        print(f"\tFound {len(files)} files in {split_path}")
+        file_lists[split] = files
 
     # Check that ther arent repeated scenarios within and across splits
     scenario_duplicates = {}

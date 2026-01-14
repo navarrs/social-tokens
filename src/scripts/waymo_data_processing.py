@@ -1,13 +1,13 @@
 """ Script adapted from: https://arxiv.org/abs/2209.13508 """
-import glob
 import multiprocessing
 import os
 import pickle # nosec B403  # nosec B403
-
+from pathlib import Path
 import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 from waymo_open_dataset.protos import scenario_pb2
+from functools import partial
 
 object_type = {0: "TYPE_UNSET", 1: "TYPE_VEHICLE", 2: "TYPE_PEDESTRIAN", 3: "TYPE_CYCLIST", 4: "TYPE_OTHER"}
 
@@ -301,12 +301,13 @@ def decode_dynamic_map_states_from_proto(dynamic_map_states):
     return dynamic_map_infos
 
 
-def process_waymo_data_with_scenario_proto(data_file, output_path=None, scenario_ids=None):
+def process_waymo_data_with_scenario_proto(data_file: Path, output_path: Path, scenario_ids: list[str] | None = None):
     """Processes a single Waymo scenario proto file and saves parsed data.
 
     Args:
-        data_file (str): Path to the .tfrecord scenario file.
-        output_path (str, optional): Directory to save parsed scenario .pkl files.
+        data_file (Path): Path to the .tfrecord scenario file.
+        output_path (Path): Directory to save parsed scenario .pkl files.
+        scenario_ids (list[str], optional): List of scenario IDs to process. If None, processes all scenarios.
 
     Returns:
         list: List of dictionaries with scenario metadata for each scenario in the file.
@@ -343,99 +344,88 @@ def process_waymo_data_with_scenario_proto(data_file, output_path=None, scenario
         save_infos = {"track_infos": track_infos, "dynamic_map_infos": dynamic_map_infos, "map_infos": map_infos}
         save_infos.update(info)
 
-        output_file = os.path.join(output_path, f"{scenario.scenario_id}.pkl")
-        with open(output_file, "wb") as f:
+        output_file = output_path / f"{scenario.scenario_id}.pkl"
+        with output_file.open("wb") as f:
             pickle.dump(save_infos, f)
 
         ret_infos.append(info)
     return ret_infos
 
 
-def get_infos_from_protos(data_path, output_path=None, scenario_ids=None, num_shards = 10, num_workers=8):
+def get_infos_from_protos(
+    data_path: Path, output_path: Path, scenario_ids: list[str] | None = None, num_workers: int = 8
+) -> list:
     """Processes all Waymo scenario proto files in a directory in parallel.
 
     Args:
-        data_path (str): Directory containing .tfrecord scenario files.
-        output_path (str, optional): Directory to save parsed scenario .pkl files.
+        data_path (Path): Directory containing .tfrecord scenario files.
+        output_path (Path): Directory to save parsed scenario .pkl files.
+        scenario_ids (list[str], optional): List of scenario IDs to process. If None, processes all scenarios.
         num_workers (int, optional): Number of parallel workers. Defaults to 8.
 
     Returns:
         list: List of dictionaries with scenario metadata for all scenarios.
     """
-    from functools import partial
     os.makedirs(output_path, exist_ok=True)
 
-    src_files = glob.glob(os.path.join(data_path, "*.tfrecord*"))
+    src_files = list(data_path.glob("*.tfrecord*"))
     src_files.sort()
-    num_files = len(src_files)
-
-    mod_files = num_files % num_shards
-    files_per_shard = num_files // num_shards
-    start_ends = [(n * files_per_shard, (n+1) * files_per_shard) for n in range(num_shards)]
-    s, e = start_ends[-1]
-    start_ends[-1] = (s, e+mod_files)
 
     data_infos = []
-    for i, (start, end) in enumerate(start_ends):
-        print(f"Processing shard {i+1} of {num_shards}")
-        shard_path = os.path.join(output_path, f"shard_{i}")
-        os.makedirs(shard_path, exist_ok=True)
-        func = partial(process_waymo_data_with_scenario_proto, output_path=shard_path, scenario_ids=scenario_ids)
-        shard_files = src_files[start:end]
-        with multiprocessing.Pool(num_workers) as p:
-            data_infos += list(tqdm(p.imap(func, shard_files), total=len(shard_files)))
+    func = partial(process_waymo_data_with_scenario_proto, output_path=output_path, scenario_ids=scenario_ids)
+    with multiprocessing.Pool(num_workers) as p:
+        data_infos = list(tqdm(p.imap(func, src_files), total=len(src_files)))
 
     all_infos = [item for infos in data_infos for item in infos]
     return all_infos
 
 
 def run(
-    raw_data_path: str,
-    proc_data_path: str,
+    raw_data_path: Path,
+    proc_data_path: Path,
     split: str,
     search_safeshift: bool,
-    safeshift_data_splits_path: str,
+    safeshift_data_splits_path: Path,
     safeshift_prefix: str,
-    num_shards: int,
     num_workers: int = 8
 ) -> None:
     """Creates processed scenario info files from raw Waymo scenario protos.
 
     Args:
-        raw_data_path (str): Path to directory with raw .tfrecord scenario files.
-        output_path (str): Directory to save processed scenario info files.
+        raw_data_path (Path): Path to the raw Waymo scenario protos.
+        proc_data_path (Path): Path to save the processed scenario info files.
+        split (str): Data split to process ('training', 'validation', or 'testing').
+        search_safeshift (bool): If True, only process scenarios from SafeShift splits.
+        safeshift_data_splits_path (Path): Path to the SafeShift data splits.
+        safeshift_prefix (str): Prefix for the SafeShift input files.
         num_workers (int, optional): Number of parallel workers. Defaults to 8.
 
     Raises:
         ValueError: If the raw data path does not exist.
     """
-    split_raw_data_path = os.path.join(raw_data_path, split)
-    if not os.path.exists(split_raw_data_path):
+    split_raw_data_path = raw_data_path / split
+    if not split_raw_data_path.exists():
         raise ValueError("Raw data path %s does not exist." % split_raw_data_path)
 
-    scenario_path = os.path.join(proc_data_path, split)
+    scenario_path = proc_data_path / split
     os.makedirs(scenario_path, exist_ok=True)
 
     scenario_ids = []
     if search_safeshift:
         print(f"Only searching for SafeShift scenarios")
         for safeshift_split in ['training', 'val', 'test']:
-            info_filepath = f"{safeshift_data_splits_path}/{safeshift_prefix}processed_scenarios_{safeshift_split}_infos.pkl"
+            info_filepath = safeshift_data_splits_path / f"{safeshift_prefix}processed_scenarios_{safeshift_split}_infos.pkl"
             print(f"Loading infos from: {info_filepath}")
-            with open(info_filepath, "rb") as f:
+            with info_filepath.open("rb") as f:
                 scenario_info = pickle.load(f)
             scenario_ids.extend([scenario['scenario_id'] for scenario in scenario_info])
     scenario_ids = None if len(scenario_ids) == 0 else scenario_ids
 
     sample_infos = get_infos_from_protos(
-        data_path=split_raw_data_path,
-        output_path=scenario_path,
-        scenario_ids=scenario_ids,
-        num_shards=num_shards,
-        num_workers=num_workers
+        data_path=split_raw_data_path, output_path=scenario_path, scenario_ids=scenario_ids, num_workers=num_workers
     )
-    sample_filename = os.path.join(proc_data_path, f"{split}_processed_infos.pkl")
-    with open(sample_filename, "wb") as f:
+    sample_filename = proc_data_path / f"{split}_processed_infos.pkl"
+    with sample_filename.open("wb") as f:
         pickle.dump(sample_infos, f)
     print("----------------Waymo info train file is saved to %s----------------" % sample_filename)
 
@@ -449,10 +439,10 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--raw_data_path", type=str, default="/datasets/waymo/raw/mini", help="Paths to the raw input data."
+        "--raw_data_path", type=Path, default=Path("/datasets/waymo/raw/mini"), help="Paths to the raw input data."
     )
     parser.add_argument(
-        "--proc_data_path", type=str, default="/datasets/waymo/processed/mini", help="Paths to the output data."
+        "--proc_data_path", type=Path, default=Path("/datasets/waymo/processed/mini"), help="Paths to the output data."
     )
     parser.add_argument(
         "--split", type=str, default="training", choices=["training", "validation", "testing"]
@@ -460,13 +450,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--search_safeshift", action='store_true', help='If set it will only look for scenarios from safeshift splits')
     parser.add_argument(
-        "--safeshift_data_splits_path", type=str, default="/datasets/waymo/mtr_process_splits",
+        "--safeshift_data_splits_path", type=Path, default=Path("/datasets/waymo/mtr_process_splits"),
         help="Path to the safeshift splits"
     )
     parser.add_argument(
         "--safeshift_prefix", type=str, default="score_asym_combined_80_", help="Prefix for the input files."
     )
-    parser.add_argument("--num_shards", type=int, default=10, help="number of shards to store the data")
     parser.add_argument("--num_workers", type=int, default=8, help="Number of workers to run")
     args = parser.parse_args()
     run(**vars(args))
