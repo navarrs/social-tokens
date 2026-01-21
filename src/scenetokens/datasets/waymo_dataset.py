@@ -14,27 +14,21 @@ from characterization.utils.common import AgentType
 from omegaconf import DictConfig
 
 from scenetokens.datasets.base_dataset import BaseDataset
-from scenetokens.utils import data_utils
+from scenetokens.utils import data_utils, pylogger
+
+
+_LOGGER = pylogger.get_pylogger(__name__)
 
 
 class WaymoDataset(BaseDataset):
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config=config)
 
-    def get_dataset_summary(self, data_path: str) -> tuple[list[str], dict[str, str]]:
-        summary_list = []
-        mapping = {}
-        for filepath in Path(data_path).rglob("*.pkl"):
-            summary_list.append(filepath.name)
-            mapping[filepath.name] = str(filepath)
-        print(f"Got {len(summary_list)} scenarios.")
-        return summary_list, mapping
-
-    def read_scenario(self, path: Path) -> dict:
+    def _deserialize_scenario(self, path: Path) -> dict:
         with path.open("rb") as f:
             return pickle.load(f)
 
-    def repack_scenario(self, scenario: dict) -> Scenario:
+    def _repack_scenario(self, scenario: dict) -> Scenario:
         """Repacks an input scenario in dictionary format into a GlobalScenario."""
         # Repack agent information from input scenario
         agent_data = self.repack_agent_data(scenario["track_infos"])
@@ -215,3 +209,8 @@ class WaymoDataset(BaseDataset):
             difficulty=tracks_to_predict["difficulty"],
             object_type=tracks_to_predict["object_type"],
         )
+
+    def load_as_open_scenario(self, path: Path) -> Scenario:
+        """Get the processed scenario in agent-centric format for HDF5 caching."""
+        raw_scenario = self._deserialize_scenario(path)
+        return self._repack_scenario(raw_scenario)
