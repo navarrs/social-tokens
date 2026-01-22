@@ -615,69 +615,95 @@ def resplit_batch(batch: output.ModelOutput) -> list[output.ModelOutput]:
     batch_scenario_embedding = batch.scenario_embedding
     batch_trajectory_output = batch.trajectory_decoder_output
     batch_tokenization_output = batch.tokenization_output
+    batch_safety_output = batch.safety_output
     batch_causal_output = batch.causal_output
     batch_causal_tokenization_output = batch.causal_tokenization_output
     batch_history_gt = batch.history_ground_truth.value
     batch_future_gt = batch.future_ground_truth.value
     batch_dataset_name = batch.dataset_name
     batch_agent_ids = batch.agent_ids.value
-    # batch_scene_score = batch.scene_score
+    batch_scene_score = batch.scenario_scores
 
     for n, scenario_id in enumerate(batch.scenario_id):
         # Scenario Embedding
         scenario_embedding = output.ScenarioEmbedding(
-            scenario_enc=batch_scenario_embedding.scenario_enc.value[n],
-            scenario_dec=batch_scenario_embedding.scenario_dec.value[n],
+            scenario_enc=batch_scenario_embedding.scenario_enc.value[n].detach().cpu(),
+            scenario_dec=batch_scenario_embedding.scenario_dec.value[n].detach().cpu(),
         )
         trajectory_decoder_output = None
         if batch_trajectory_output is not None:
             trajectory_decoder_output = output.TrajectoryDecoderOutput(
-                decoded_trajectories=batch_trajectory_output.decoded_trajectories.value[n],
-                mode_probabilities=batch_trajectory_output.mode_probabilities.value[n],
-                mode_logits=batch_trajectory_output.mode_logits.value[n],
+                decoded_trajectories=batch_trajectory_output.decoded_trajectories.value[n].detach().cpu(),
+                mode_probabilities=batch_trajectory_output.mode_probabilities.value[n].detach().cpu(),
+                mode_logits=batch_trajectory_output.mode_logits.value[n].detach().cpu(),
             )
         tokenization_output = None
         if batch_tokenization_output is not None:
             probs = batch_tokenization_output.token_probabilities
             tokenization_output = output.TokenizationOutput(
-                token_probabilities=None if probs is None else probs.value[n],
-                token_indices=batch_tokenization_output.token_indices.value[n],
-                input_embedding=batch_tokenization_output.input_embedding.value[n],
-                reconstructed_embedding=batch_tokenization_output.reconstructed_embedding.value[n],
-                quantized_embedding=batch_tokenization_output.quantized_embedding.value[n],
+                token_probabilities=None if probs is None else probs.value[n].detach().cpu(),
+                token_indices=batch_tokenization_output.token_indices.value[n].detach().cpu(),
+                input_embedding=batch_tokenization_output.input_embedding.value[n].detach().cpu(),
+                reconstructed_embedding=batch_tokenization_output.reconstructed_embedding.value[n].detach().cpu(),
+                quantized_embedding=batch_tokenization_output.quantized_embedding.value[n].detach().cpu(),
             )
         causal_output = None
         if batch_causal_output is not None:
             causal_output = output.CausalOutput(
-                causal_gt=batch_causal_output.causal_gt.value[n],
-                causal_pred=batch_causal_output.causal_pred.value[n],
-                causal_pred_probs=batch_causal_output.causal_pred_probs.value[n],
-                causal_logits=batch_causal_output.causal_logits.value[n],
+                causal_gt=batch_causal_output.causal_gt.value[n].detach().cpu(),
+                causal_pred=batch_causal_output.causal_pred.value[n].detach().cpu(),
+                causal_pred_probs=batch_causal_output.causal_pred_probs.value[n].detach().cpu(),
+                causal_logits=batch_causal_output.causal_logits.value[n].detach().cpu(),
             )
+        safety_output = None
+        if batch_safety_output is not None:
+            safety_output = output.SafetyOutput(
+                individual_safety_gt=batch_safety_output.individual_safety_gt.value[n].detach().cpu(),
+                individual_safety_pred=batch_safety_output.individual_safety_pred.value[n].detach().cpu(),
+                individual_safety_pred_probs=batch_safety_output.individual_safety_pred_probs.value[n].detach().cpu(),
+                individual_safety_logits=batch_safety_output.individual_safety_logits.value[n].detach().cpu(),
+                interaction_safety_gt=batch_safety_output.interaction_safety_gt.value[n].detach().cpu(),
+                interaction_safety_pred=batch_safety_output.interaction_safety_pred.value[n].detach().cpu(),
+                interaction_safety_pred_probs=batch_safety_output.interaction_safety_pred_probs.value[n].detach().cpu(),
+                interaction_safety_logits=batch_safety_output.interaction_safety_logits.value[n].detach().cpu(),
+            )
+
         causal_tokenization_output = None
         if batch_causal_tokenization_output is not None:
             probs = batch_causal_tokenization_output.token_probabilities
             causal_tokenization_output = output.TokenizationOutput(
-                token_probabilities=None if probs is None else probs.value[n],
-                token_indices=batch_causal_tokenization_output.token_indices.value[n],
-                input_embedding=batch_causal_tokenization_output.input_embedding.value[n],
-                reconstructed_embedding=batch_causal_tokenization_output.reconstructed_embedding.value[n],
-                quantized_embedding=batch_causal_tokenization_output.quantized_embedding.value[n],
+                token_probabilities=None if probs is None else probs.value[n].detach().cpu(),
+                token_indices=batch_causal_tokenization_output.token_indices.value[n].detach().cpu(),
+                input_embedding=batch_causal_tokenization_output.input_embedding.value[n].detach().cpu(),
+                reconstructed_embedding=batch_causal_tokenization_output.reconstructed_embedding.value[n].detach().cpu(),
+                quantized_embedding=batch_causal_tokenization_output.quantized_embedding.value[n].detach().cpu(),
             )
+
+        scenario_scores = None
+        if batch_scene_score is not None:
+            scenario_scores = output.ScenarioScores(
+                individual_agent_scores=batch_scene_score.individual_agent_scores.value[n].detach().cpu(),
+                individual_scenario_score=batch_scene_score.individual_scenario_score.value[n].detach().cpu(),
+                interaction_agent_scores=batch_scene_score.interaction_agent_scores.value[n].detach().cpu(),
+                interaction_scenario_score=batch_scene_score.interaction_scenario_score.value[n].detach().cpu(),
+            )
+
         # Output
         batch_resplit[scenario_id] = output.ModelOutput(
             scenario_embedding=scenario_embedding,
             trajectory_decoder_output=trajectory_decoder_output,
             tokenization_output=tokenization_output,
+            safety_output=safety_output,
             causal_output=causal_output,
             causal_tokenization_output=causal_tokenization_output,
-            history_ground_truth=batch_history_gt[n],
-            future_ground_truth=batch_future_gt[n],
+            history_ground_truth=batch_history_gt[n].detach().cpu(),
+            future_ground_truth=batch_future_gt[n].detach().cpu(),
             dataset_name=[batch_dataset_name[n]],
             scenario_id=[scenario_id],
-            agent_ids=batch_agent_ids[n],
-            # scene_score=batch_scene_score.value[n] if batch.scene_score is not None else None,
+            agent_ids=batch_agent_ids[n].detach().cpu(),
+            scenario_scores=scenario_scores,
         )
+
     return batch_resplit
 
 

@@ -42,18 +42,8 @@ scenarios_path: ${paths.base_path}/processed/mini_causal/training # Specify path
 
 # Specify name of experiment to consider
 paths:
-  # note: current student experiment
-  # experiment_dir: causal-benchmark-labeled_scenetokens-student_2025-11-06_23-23-37
-  # note: old student experiment
-  # experiment_dir: causal-benchmark-labeled_scenetokens-student_token-conditioning-sweep_2025-08-15_12-35-50
-  # note: current teacher unmasked experiment
-  # experiment_dir: causal-benchmark-labeled_scenetokens-teacher-unmasked_2025-11-07_14-51-36
-
   # Student Model
-  # experiment_dir: causal-benchmark-labeled_scenetokens-student_2025-12-10_11-00-03
+  experiment_dir: causal-benchmark-labeled_scenetokens-student_2025-12-10_11-00-03
 
   # Safe-ST Model (ckpt: epoch_139.ckpt)
-  experiment_dir: causal-benchmark-labeled_safe-scenetokens_safe-weight_2026-01-13_18-45-53
-  # uv run -m scenetokens.sample_selection \
-  #   model=safe_scenetokens paths=waymo_causal_labeled \
-  #   ckpt_path=/data/driving/waymo/causal-benchmark-labeled/model_cache/causal-benchmark-labeled_safe-scenetokens_safe-weight_2026-01-13_18-45-53/ckpts/causal-benchmark-labeled_safe-scenetokens_safe-weight/epoch_139.ckpt
+  # experiment_dir: causal-benchmark-labeled_safe-scenetokens_safe-weight_2026-01-13_18-45-53

@@ -9,7 +9,7 @@ config:
 
   num_classes: 100
   num_queries: 38
-  num_labels: 9
+  num_labels: 9 # Safety Cateogories produced by the SafeShift model
 
   scenario_embedder:
     _target_: scenetokens.models.scene.perceiver_embedder.PerceiverEmbedder
@@ -59,8 +59,8 @@ config:
       reconstruction_weight: 1.0
       trajpred_weight: 1.0
       tokenization_weight: 1.0
-      individual_classification_weight: 0.3
-      interaction_classification_weight: 0.3
+      individual_classification_weight: 0.3 # Note: weight set to 0.3 for causal benchmark and to 0.5 for ego-safeshift
+      interaction_classification_weight: 0.3 # Note: weight set to 0.3 for causal benchmark and to 0.5 for ego-safeshift
       classification_weight: 1.0
       use_focal_loss: null
       gamma: null

@@ -9,7 +9,6 @@ from scenetokens.schemas.output_schemas import (
     ModelOutput,
     SafetyOutput,
     ScenarioEmbedding,
-    ScenarioScores,
     TokenizationOutput,
     TrajectoryDecoderOutput,
 )
@@ -109,6 +108,9 @@ class SafeSceneTokens(BaseModel):
         #   roads: (B, P, R, D + mask)
         ego_agent, other_agents, roads = BaseModel.gather_input(inputs)
 
+        # Get scenario scores if available
+        scenario_scores = BaseModel.gather_scores(inputs)
+
         # Processes and embeds historical information from self.embed() and produces a decoder embedding using a
         # trainable decoder query.
         scenario_embedder: ScenarioEmbedding = self.embed(ego_agent, other_agents, roads)
@@ -144,13 +146,6 @@ class SafeSceneTokens(BaseModel):
             interaction_safety_pred_probs=interaction_safety_probs,
             interaction_safety_pred=interaction_safety_pred.argmax(dim=-1).to(torch.float),
             interaction_safety_logits=interaction_safety_pred,
-        )
-
-        scenario_scores = ScenarioScores(
-            individual_agent_scores=individual_safety_scores,
-            individual_scenario_score=inputs["individual_scene_scores"],
-            interaction_agent_scores=interaction_safety_scores,
-            interaction_scenario_score=inputs["interaction_scene_scores"],
         )
 
         # Classify the scenario using the selected tokenizer.

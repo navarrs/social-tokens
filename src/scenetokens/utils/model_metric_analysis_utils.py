@@ -26,27 +26,18 @@ MODEL_NAME_MAP = {
 }
 
 
-def plot_sample_selection_sweep_lineplot(config: DictConfig, log: Logger, output_path: Path) -> None:  # noqa: PLR0915, PLR0912
-    """For each (model, subsplit), creates a figure with one subplot per metric. Each subplot shows metric values across
-    retention percentages for all sample selection strategies, plus a horizontal base-model reference line. Highlights
-    best strategy, auto-scales y-axis, and adds confidence bands when available.
+def _plot_sample_selection_sweep_lineplot(  # noqa: PLR0915
+    config: DictConfig, log: Logger, output_path: Path, metrics_df: pd.DataFrame, suffix: str = ""
+) -> None:
+    """Wrapper to call plot_sample_selection_sweep_lineplot for a specific metrics file.
 
     Args:
         config (DictConfig): encapsulates model analysis configuration parameters.
         log (Logger): Logger for logging analysis information.
         output_path (Path): Directory to save the generated plots.
+        metrics_df (pd.DataFrame): DataFrame containing the metrics data.
+        suffix (str): Suffix to append to output filenames to distinguish different metrics files.
     """
-    output_path = output_path / "sample_selection_lineplots"
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    # Load metrics CSV
-    base_path = Path(config.base_path)
-    metrics_filepath = base_path / config.metrics_file
-    if not metrics_filepath.exists():
-        log.error("Metrics file not found at %s", metrics_filepath)
-        return
-    metrics_df = pd.read_csv(metrics_filepath)
-
     metrics = config.trajectory_forecasting_metrics + config.other_metrics
     log.info("Plotting sample selection sweep lineplots for metrics: %s", metrics)
     retention_pcts = list(map(float, config.sample_retention_percentages))
@@ -114,7 +105,7 @@ def plot_sample_selection_sweep_lineplot(config: DictConfig, log: Logger, output
             # Auto-scale y-axis with padding
             if all_y_values:
                 ymin, ymax = np.nanmin(all_y_values), np.nanmax(all_y_values)
-                padding = 0.3 * (ymax - ymin) if ymax > ymin else 0.05
+                padding = 0.5 * (ymax - ymin) if ymax > ymin else 0.05
                 ax.set_ylim(ymin - padding, ymax + padding)
 
             ax.set_title(metric.replace("_", " "), pad=10)
@@ -132,10 +123,131 @@ def plot_sample_selection_sweep_lineplot(config: DictConfig, log: Logger, output
         fig.legend(handles, labels, loc="lower center", ncol=min(len(labels), 6), frameon=False)
         plt.tight_layout(rect=(0, 0.1, 1, 1))
 
-        output_filepath = output_path / f"{model}_{subsplit}.png"
+        output_filepath = output_path / f"{model}_{subsplit}{suffix}.png"
         fig.savefig(output_filepath, dpi=200)
         plt.close(fig)
         log.info("Saved sweep plot to %s", output_filepath)
+
+
+def _plot_joint_sample_selection_sweep_lineplot(
+    config: DictConfig, log: Logger, output_path: Path, metrics_dataframes: dict[str, pd.DataFrame]
+) -> None:
+    """Creates subplots for each strategy, showing different dataframe versions (which are metrics file versions) as
+    separate lines.
+
+    Args:
+        config (DictConfig): encapsulates model analysis configuration parameters.
+        log (Logger): Logger for logging analysis information.
+        output_path (Path): Directory to save the generated plots.
+        metrics_dataframes (dict[str, pd.DataFrame]): Dictionary of DataFrames containing the metrics for each file.
+    """
+    metrics = config.trajectory_forecasting_metrics + config.other_metrics
+    log.info("Plotting sample selection sweep lineplots for metrics: %s", metrics)
+    retention_pcts = list(map(float, config.sample_retention_percentages))
+
+    # Create a colormap for the dataframe versions
+    cmap = plt.cm.get_cmap(config.get("lineplot_colormap", "tab10"))
+    colors = [cmap(i) for i in range(cmap.N)]
+    colormap = {version: colors[i % len(colors)] for i, version in enumerate(metrics_dataframes.keys())}
+
+    for model, split in product(config.models_to_compare, config.sample_selection_splits_to_compare):
+        subsplit = split.split("/")[-1]
+
+        for strategy in config.sample_selection_strategies_to_compare:
+            log.info("Creating sweep plot for model=%s, split=%s, strategy=%s", model, split, strategy)
+
+            fig, axes = plt.subplots(1, len(metrics), figsize=(6 * len(metrics), 4.5), squeeze=False)
+            for i, metric in enumerate(metrics):
+                ax = axes[0, i]
+                column = f"{split}/{metric}" if metric in config.trajectory_forecasting_metrics else metric
+
+                # Plot each dataframe version for this strategy
+                all_y_values = []
+                for version_key, sweep_df in metrics_dataframes.items():
+                    sweep_prefix = f"{config.sample_selection_benchmark}_{model}_{strategy}"
+
+                    # Collect y values across retention percentages
+                    y = []
+                    for pct in retention_pcts:
+                        row = sweep_df[sweep_df["Name"] == f"{sweep_prefix}_{pct}"]
+                        if not row.empty and column in row.columns:
+                            val = row.iloc[0][column]
+                            y.append(val)
+                            all_y_values.append(val)
+                        else:
+                            y.append(np.nan)
+                    y = np.array(y, dtype=float)
+                    if metric == "Runtime":
+                        y = y / 3600.0  # convert to hours
+                        all_y_values = [v / 3600.0 for v in all_y_values]
+
+                    # Plot metrics across retention percentages
+                    ax.plot(
+                        retention_pcts,
+                        y,
+                        marker="o",
+                        ms=6,
+                        lw=2.5,
+                        c=colormap[version_key],
+                        alpha=0.9,
+                        label=version_key,
+                    )
+
+                # Auto-scale y-axis with padding
+                if all_y_values:
+                    ymin, ymax = np.nanmin(all_y_values), np.nanmax(all_y_values)
+                    padding = 0.5 * (ymax - ymin) if ymax > ymin else 0.05
+                    ax.set_ylim(ymin - padding, ymax + padding)
+
+                ax.set_title(metric.replace("_", " "), pad=10)
+                ax.set_xlabel("Data Retention (%)")
+                ax.set_ylabel("Metric Value")
+                ax.set_xticks(retention_pcts)
+                ax.set_xticklabels([f"{int(p * 100)}%" for p in retention_pcts])
+                ax.grid(visible=True, linestyle="--", linewidth=0.5, alpha=0.4)
+                ax.spines["top"].set_visible(False)
+                ax.spines["right"].set_visible(False)
+                ax.legend().remove()
+
+            # Shared legend at the bottom
+            handles, labels = axes[0, 0].get_legend_handles_labels()
+            fig.legend(handles, labels, loc="lower center", ncol=min(len(labels), 6), frameon=False)
+            plt.tight_layout(rect=(0, 0.1, 1, 1))
+
+            output_filepath = output_path / f"{model}_{subsplit}_{strategy}.png"
+            fig.savefig(output_filepath, dpi=200)
+            plt.close(fig)
+            log.info("Saved sweep plot to %s", output_filepath)
+
+
+def plot_sample_selection_sweep_lineplot(config: DictConfig, log: Logger, output_path: Path) -> None:
+    """For each (model, subsplit), creates a figure with one subplot per metric. Each subplot shows metric values across
+    retention percentages for all sample selection strategies, plus a horizontal base-model reference line. Highlights
+    best strategy, auto-scales y-axis, and adds confidence bands when available.
+
+    Args:
+        config (DictConfig): encapsulates model analysis configuration parameters.
+        log (Logger): Logger for logging analysis information.
+        output_path (Path): Directory to save the generated plots.
+    """
+    output_path = output_path / "sample_selection_lineplots"
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    # Load metrics CSV
+    metrics_dataframes = {}
+    for file in config.sample_selection_files:
+        log.info("Processing sample selection sweep lineplots for file: %s", file)
+        metrics_filepath = Path(file)
+        if not metrics_filepath.exists():
+            log.error("Sample selection CSV not found at %s", metrics_filepath)
+            return
+        metrics_df = pd.read_csv(metrics_filepath)
+        suffix = Path(file).stem.split("_")[-1]
+        metrics_dataframes[suffix] = metrics_df
+        _plot_sample_selection_sweep_lineplot(config, log, output_path, metrics_df, f"_{suffix}")
+
+    if len(metrics_dataframes) > 1:
+        _plot_joint_sample_selection_sweep_lineplot(config, log, output_path, metrics_dataframes)
 
 
 def plot_sample_selection_sweep_heatmap(config: DictConfig, log: Logger, output_path: Path) -> None:  # noqa: PLR0915, PLR0912

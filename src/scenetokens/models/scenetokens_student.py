@@ -93,6 +93,9 @@ class SceneTokensStudent(BaseModel):
         #   roads: (B, P, R, D + mask)
         ego_agent, other_agents, roads = BaseModel.gather_input(inputs)
 
+        # Get scenario scores if available
+        scenario_scores = BaseModel.gather_scores(inputs)
+
         # Processes and embeddes historical information from self.encode() and produces a decoder embedding using a
         # the trainable decoder query.
         scenario_embedding: ScenarioEmbedding = self.embed(ego_agent, other_agents, roads)
@@ -122,6 +125,7 @@ class SceneTokensStudent(BaseModel):
             dataset_name=inputs["dataset_name"],
             scenario_id=inputs["scenario_id"],
             agent_ids=inputs["obj_ids"].squeeze(-1).squeeze(-1),
+            scenario_scores=scenario_scores,
         )
 
     def embed(self, ego_agent: torch.Tensor, other_agents: torch.Tensor, roads: torch.Tensor) -> ScenarioEmbedding:

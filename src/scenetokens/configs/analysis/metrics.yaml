@@ -1,14 +1,10 @@
 # @package _global_
-palette: muted
-
 seed: 42 # Seed for random generators
 show_run_id: false
-base_path: ./meta
-metrics_file: sample_selection_runs.csv
-
 models_to_compare: [
   'scenetransformer',
   'wayformer',
+  'safe-scenetokens',
   'scenetokens-student',
   'scenetokens-teacher-unmasked'
 ]
@@ -34,9 +30,12 @@ other_metrics: [
   'Runtime',
 ]
 
-
 # Sample selection sweep analysis
 sample_selection_benchmark: 'causal-benchmark-labeled'
+sample_selection_files: [
+  "./meta/runs/causal_sample-selection_scene-tokens.csv",
+  "./meta/runs/causal_sample-selection_safe-scene-tokens.csv",
+]
 sample_selection_splits_to_compare: [
   'test/waymo-mini-causal-testing',
   'test/waymo-remove-noncausal-testing',
@@ -45,13 +44,13 @@ sample_selection_strategies_to_compare: [
   'random_drop',
   'token_random_drop',
   'simple_token_jaccard_drop',
-  # 'simple_token_hamming_drop',
   'gumbel_token_jaccard_drop',
-  # 'gumbel_token_hamming_drop',
+  'simple_token_hamming_drop',
+  'gumbel_token_hamming_drop',
 ]
 sample_retention_percentages: [0.45, 0.55, 0.65, 0.75, 0.85, 0.95]
 
-run_sample_selection_sweep_lineplot_analysis: false
+run_sample_selection_sweep_lineplot_analysis: true
 lineplot_colormap: tab10
 
 run_sample_selection_sweep_heatmap_analysis: false
@@ -60,9 +59,9 @@ highlight_color: dodgerblue
 add_rectangle_annotation: false
 
 # Ego-safeshift analysis
-run_egosafeshift_analysis: true
+run_egosafeshift_analysis: false
 ego_safeshift_benchmark: 'ego-safeshift-causal-benchmark'
-ego_safeshift_file: "./meta/ego_safeshift_benchmark_runs.csv"
+ego_safeshift_file: "./meta/runs/ego-safeshift_benchmark.csv"
 ego_safeshift_colormap: colorblind
 ego_safeshift_splits_to_compare: [
   'test/waymo-causal-ego-safeshift-id',
@@ -72,7 +71,7 @@ ego_safeshift_splits_to_compare: [
 # Causal benchmark analysis
 run_causal_benchmark_analysis: false
 causal_benchmark: 'causal-benchmark-labeled'
-causal_benchmark_file: "./meta/causal_benchmark_runs.csv"
+causal_benchmark_file: "./meta/runs/causal_benchmark.csv"
 causal_benchmark_colormap: colorblind
 causal_benchmark_splits_to_compare: [
   'test/waymo-mini-causal-testing',

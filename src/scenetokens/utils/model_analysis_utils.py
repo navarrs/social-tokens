@@ -37,15 +37,20 @@ def get_scenario_classes_best_mode(
     for scenario_id, model_output in model_outputs.items():
         tokenization_output = model_output.tokenization_output
         num_classes = tokenization_output.num_tokens if tokenization_output.num_tokens != 0 else 100
-        indices = tokenization_output.token_indices.value.detach().cpu().numpy()
+        indices = tokenization_output.token_indices.value.numpy()
 
         trajectory_decoder_output = model_output.trajectory_decoder_output
-        selected_mode = trajectory_decoder_output.mode_probabilities.value.argmax(dim=-1).detach().cpu().item()
+        selected_mode = trajectory_decoder_output.mode_probabilities.value.argmax(dim=-1).item()
 
         scenario_ids.append(scenario_id)
         scenario_classes.append(indices[selected_mode])
-        # if model_output.scenario_scores is not None:
-        #     scenario_scores.append(model_output.scenario_scores.value.detach().cpu().item())
+
+        if model_output.scenario_scores is not None:
+            # TODO: fix this by adding SafeShift Scores to the ScenarioScores schema
+            indvidual_score = model_output.scenario_scores.individual_scenario_score.value.item()
+            interaction_score = model_output.scenario_scores.interaction_scenario_score.value.item()
+            safeshift_score = indvidual_score + interaction_score
+            scenario_scores.append(safeshift_score)
 
     return np.asarray(scenario_ids), np.array(scenario_classes).reshape(-1, 1), np.array(scenario_scores), num_classes
 
@@ -70,11 +75,11 @@ def get_scenario_classes_per_mode(
     for scenario_id, model_output in model_outputs.items():
         tokenization_output = model_output.tokenization_output
         num_classes = tokenization_output.num_tokens if tokenization_output.num_tokens != 0 else 100
-        indices = tokenization_output.token_indices.value.detach().cpu().numpy()
+        indices = tokenization_output.token_indices.value.numpy()
 
         if rank_by_probability:
             trajectory_decoder_output = model_output.trajectory_decoder_output
-            modes_order = np.argsort(trajectory_decoder_output.mode_probabilities.value.detach().cpu().numpy())[::-1]
+            modes_order = np.argsort(trajectory_decoder_output.mode_probabilities.value.numpy())[::-1]
             indices = indices[modes_order]
 
         scenario_ids.append(scenario_id)
@@ -622,6 +627,12 @@ def compute_token_consistency_matrix(
     group_modes = get_group_modes(tokenization_groups)
 
     consistency_matrix = np.zeros(shape=(num_tokens, num_tokens))
+    # Get a weight factor based on group sizes
+    # group_sizes = np.array(
+    #     [tokenization_groups[i].shape[0] if tokenization_groups[i] is not None else 0 for i in range(num_tokens)]
+    # )
+    # weight_factors = (group_sizes - group_sizes.min()) / (group_sizes.max() - group_sizes.min() + 1e-8)
+    #
     for (i, j), _ in np.ndenumerate(consistency_matrix):
         if tokenization_groups[i] is None or group_modes.get(j, None) is None:
             continue

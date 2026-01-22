@@ -8,7 +8,7 @@ from characterization.utils.common import AgentType
 from omegaconf import DictConfig
 from pytorch_lightning import LightningModule
 
-from scenetokens.schemas.output_schemas import ModelOutput
+from scenetokens.schemas.output_schemas import ModelOutput, ScenarioScores
 from scenetokens.utils import metric_utils, save_cache
 from scenetokens.utils.constants import KALMAN_DIFFICULTY, MILLION, TrajectoryType
 
@@ -205,6 +205,29 @@ class BaseModel(LightningModule, ABC):
         # Combined road information shape: (B, P, M, D+1)
         roads = torch.cat([roads, roads_mask], dim=-1)
         return ego_in, agents_in, roads
+
+    @staticmethod
+    def gather_scores(inputs: dict) -> ScenarioScores | None:
+        """Gathers scenario scores for individual and interaction safety.
+
+        Args:
+            inputs (dict): dictionary containing scenario data according to the collate_fn() from
+                scenetokens/datasets/base_dataset.py
+        Returns:
+            scenario_scores (ScenarioScores | None): pydantic validator containing scenario scores
+                information.
+        """
+        scenario_scores = None
+        if "individual_agent_scores" in inputs and "interaction_agent_scores" in inputs:
+            individual_safety_scores = inputs["individual_agent_scores"].squeeze(-1)
+            interaction_safety_scores = inputs["interaction_agent_scores"].squeeze(-1)
+            scenario_scores = ScenarioScores(
+                individual_agent_scores=individual_safety_scores,
+                individual_scenario_score=inputs["individual_scene_scores"],
+                interaction_agent_scores=interaction_safety_scores,
+                interaction_scenario_score=inputs["interaction_scene_scores"],
+            )
+        return scenario_scores
 
     @staticmethod
     def split_by_trajectory_type(trajectory_types: np.ndarray, metric_dict: dict, metric_keys: list[str]) -> dict:
