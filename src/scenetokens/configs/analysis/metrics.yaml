@@ -2,7 +2,7 @@
 palette: muted
 
 seed: 42 # Seed for random generators
-show_run_id: true
+show_run_id: false
 base_path: ./meta
 metrics_file: sample_selection_runs.csv
 
@@ -60,16 +60,17 @@ highlight_color: dodgerblue
 add_rectangle_annotation: false
 
 # Ego-safeshift analysis
-run_egosafeshift_analysis: false
-ego_safeshift_colormap: colorblind
+run_egosafeshift_analysis: true
 ego_safeshift_benchmark: 'ego-safeshift-causal-benchmark'
+ego_safeshift_file: "./meta/ego_safeshift_benchmark_runs.csv"
+ego_safeshift_colormap: colorblind
 ego_safeshift_splits_to_compare: [
   'test/waymo-causal-ego-safeshift-id',
   'test/waymo-causal-ego-safeshift-ood',
 ]
 
 # Causal benchmark analysis
-run_causal_benchmark_analysis: true
+run_causal_benchmark_analysis: false
 causal_benchmark: 'causal-benchmark-labeled'
 causal_benchmark_file: "./meta/causal_benchmark_runs.csv"
 causal_benchmark_colormap: colorblind

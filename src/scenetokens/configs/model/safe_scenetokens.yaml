@@ -50,7 +50,7 @@ config:
     token_conditioning: ${model.config.token_conditioning}
 
   # Model's optimization criterion
-  criterion_tags: ind-classification-${model.config.criterion.config.classification_weight}_int-classification-${model.config.criterion.config.classification_weight}_reconstruction-${model.config.criterion.config.reconstruction_weight}_tokenization-${model.config.criterion.config.tokenization_weight}
+  criterion_tags: ind-classification-${model.config.criterion.config.individual_classification_weight}_int-classification-${model.config.criterion.config.interaction_classification_weight}_reconstruction-${model.config.criterion.config.reconstruction_weight}_tokenization-${model.config.criterion.config.tokenization_weight}
   focal_tags: use-focal_${model.config.criterion.config.use_focal_loss}_gamma-${model.config.criterion.config.gamma}_alpha-${model.config.criterion.config.alpha}
   criterion:
     _target_: scenetokens.models.criterion.safe_scenetokens.SafeSceneTokens
@@ -59,8 +59,8 @@ config:
       reconstruction_weight: 1.0
       trajpred_weight: 1.0
       tokenization_weight: 1.0
-      individual_classification_weight: 1.0
-      interaction_classification_weight: 1.0
+      individual_classification_weight: 0.3
+      interaction_classification_weight: 0.3
       classification_weight: 1.0
       use_focal_loss: null
       gamma: null

@@ -47,19 +47,19 @@ EOF
 ############################
 DEFAULT_MODELS=(
     wayformer
+    scenetransformer
     safe_scenetokens
     scenetokens_student
     scenetokens_teacher_unmasked
-    scenetransformer
 )
 DEFAULT_DEVICES="0"
 DEFAULT_STRATEGIES=(
-  random_drop
   token_random_drop
   simple_token_jaccard_drop
   simple_token_hamming_drop
   gumbel_token_jaccard_drop
   gumbel_token_hamming_drop
+  random_drop
 )
 DEFAULT_PERCENTAGES=(0.45 0.55 0.65 0.75 0.85 0.95)
 

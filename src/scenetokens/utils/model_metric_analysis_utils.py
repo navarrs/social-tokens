@@ -350,7 +350,7 @@ def _plot_distribution_shift_comparison(
 
         ax.set_ylabel(metric, fontsize=10, fontweight="bold")
         ax.set_title(title, fontsize=12, fontweight="bold")
-        ax.tick_params(axis="x", labelsize=9)
+        ax.tick_params(axis="x", labelsize=9, rotation=30)
 
         for bar in bars:
             height = bar.get_height()
@@ -388,14 +388,14 @@ def _plot_distribution_shift_comparison(
     ax3.axhline(y=0, color="black", linestyle="-", linewidth=1.5)
     ax3.set_ylabel("Performance Gap (OOD - ID)", fontsize=11, fontweight="bold")
     ax3.set_title("Generalization Gap", fontsize=12, fontweight="bold")
-    ax3.tick_params(axis="x", labelsize=12)
+    ax3.tick_params(axis="x", labelsize=12, rotation=30)
 
     for bar, gap in zip(bars, gap_values, strict=False):
         height = bar.get_height()
         if not np.isnan(height):
             va = "bottom" if height > 0 else "top"
             x = bar.get_x() + bar.get_width() / 2.0
-            ax3.text(x, height, f"{gap:.3f}", ha="center", va=va, fontsize=10, fontweight="bold")
+            ax3.text(x, height, f"{gap:.3f}", ha="center", va=va, fontsize=8, fontweight="bold")
     ax3.yaxis.grid(visible=True, alpha=0.3)
 
     plt.tight_layout()
@@ -631,8 +631,7 @@ def plot_egosafeshift(config: DictConfig, log: Logger, output_path: Path) -> Non
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Load metrics CSV
-    base_path = Path(config.base_path)
-    metrics_filepath = base_path / config.metrics_file
+    metrics_filepath = Path(config.ego_safeshift_file)
     if not metrics_filepath.exists():
         log.error("Metrics file not found at %s", metrics_filepath)
         return
@@ -646,7 +645,13 @@ def plot_egosafeshift(config: DictConfig, log: Logger, output_path: Path) -> Non
 
     # Extract model names
     egosafeshift_df["model_name"] = egosafeshift_df["Name"].str.replace(f"{config.ego_safeshift_benchmark}_", "")
-
+    egosafeshift_df["model_name"] = egosafeshift_df["model_name"].map(lambda x: MODEL_NAME_MAP.get(str(x), str(x)))  # pyright: ignore[reportUnknownLambdaType]
+    if config.show_run_id:
+        egosafeshift_df["Model"] = (
+            egosafeshift_df["model_name"].astype(str) + "[" + egosafeshift_df["ID"].astype(str) + "]"
+        )
+    else:
+        egosafeshift_df["Model"] = egosafeshift_df["model_name"].astype(str)
     # Key metrics to compare
     metrics = {
         f"{split}/{metric}": f"{metric} ({split.split('-')[-1]},↓)"
@@ -657,7 +662,7 @@ def plot_egosafeshift(config: DictConfig, log: Logger, output_path: Path) -> Non
     # Create a summary dataframe
     summary_data = []
     for _, row in egosafeshift_df.iterrows():
-        model_metrics = {"Model": MODEL_NAME_MAP.get(row["model_name"], row["model_name"])}
+        model_metrics = {"Model": row["Model"]}
         for metric_col, metric_name in metrics.items():
             if metric_col in egosafeshift_df.columns:
                 model_metrics[metric_name] = row[metric_col]

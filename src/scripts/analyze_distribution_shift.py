@@ -89,6 +89,7 @@ def analyze_distribution_shift(data_cache_path: Path, data_subsets: list[str], o
         plt.xlabel("Interaction Agent Scores")
         plt.ylabel("Individual Agent Scores")
         plt.title(f"Agent Scores Heatmap for Subset: {data_subset}")
+        plt.gca().invert_yaxis()
         plt.tight_layout()
 
         output_filepath = output_path / f"{data_subset}_heatmap.png"

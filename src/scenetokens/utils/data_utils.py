@@ -619,7 +619,7 @@ def resplit_batch(batch: output.ModelOutput) -> list[output.ModelOutput]:
     batch_future_gt = batch.future_ground_truth.value
     batch_dataset_name = batch.dataset_name
     batch_agent_ids = batch.agent_ids.value
-    batch_scene_score = batch.scene_score
+    # batch_scene_score = batch.scene_score
 
     for n, scenario_id in enumerate(batch.scenario_id):
         # Scenario Embedding
@@ -674,7 +674,7 @@ def resplit_batch(batch: output.ModelOutput) -> list[output.ModelOutput]:
             dataset_name=[batch_dataset_name[n]],
             scenario_id=[scenario_id],
             agent_ids=batch_agent_ids[n],
-            scene_score=batch_scene_score.value[n] if batch.scene_score is not None else None,
+            # scene_score=batch_scene_score.value[n] if batch.scene_score is not None else None,
         )
     return batch_resplit
 
