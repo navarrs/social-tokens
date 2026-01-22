@@ -8,7 +8,7 @@ from scipy.interpolate import interp1d
 from torch.utils.data import Sampler
 
 from scenetokens.utils.constants import TrajectoryType
-
+from scenetokens.utils import pylogger
 import json
 import pickle
 from pathlib import Path
@@ -20,6 +20,8 @@ from scenetokens.schemas import output_schemas as output
 
 
 MAX_NUM_BATCHES = 1e6
+_LOGGER = pylogger.get_pylogger(__name__)
+
 
 def minmax_scaler(x: np.ndarray) -> np.ndarray:
     """Normalizes an input value using Min-Max normalizaiton.
@@ -680,7 +682,7 @@ def resplit_batch(batch: output.ModelOutput) -> list[output.ModelOutput]:
 
 
 def load_batches(base_data_path, num_batches, num_scenarios, seed, tag="val"):
-    print(f"Loading scenario batches from {base_data_path}")
+    _LOGGER.info(f"Loading scenario batches from {base_data_path}")
     num_batches = MAX_NUM_BATCHES if num_batches is None else min(num_batches, MAX_NUM_BATCHES)
     random.seed(seed)
 
@@ -694,6 +696,8 @@ def load_batches(base_data_path, num_batches, num_scenarios, seed, tag="val"):
         batch_resplit = resplit_batch(batch)
         batches.update(batch_resplit)
 
+    if not batches:
+        raise ValueError(f"No batches found in {base_data_path} with tag {tag}")
     # Select scenarios
     scenario_ids = batches.keys()
     total_scenarios = len(scenario_ids)
@@ -701,6 +705,7 @@ def load_batches(base_data_path, num_batches, num_scenarios, seed, tag="val"):
         num_scenarios = max(1, total_scenarios)
     else:
         num_scenarios = max(1, min(num_scenarios, total_scenarios))
+    _LOGGER.info(f"Selecting {num_scenarios} / {total_scenarios} scenarios")
     selected_scenarios = random.sample(list(batches.keys()), num_scenarios)
     return {scenario: batches[scenario] for scenario in selected_scenarios}
 

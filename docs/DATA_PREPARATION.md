@@ -19,12 +19,22 @@ gsutil -m cp -r "gs://waymo_open_dataset_motion_v_1_2_0/uncompressed/scenario/te
 ```
 
 4. **[Optional]** Sample a subset of the data
+
+If skipping this step, simply add a symlink.
+
+```shell
+mkdir -p /datasets/waymo/raw
+cd /datasets/waymo/raw
+ln -s ../motion/scenario/ mini
+```
+
+To get a mini subset run the following.
 ```bash
 cd scene-tokens/src/scripts
 uv run waymo_data_selection.py --parallel
 ```
 
-By default it will randomly select 15% of the files within the training split and copy them to `/datasets/waymo/raw/mini`. It will also save a summary file to `./meta/waymo_mini.json`, listing selected files for reference.
+By default it will randomly select 15% of the files within the training split and copy them to `/datasets/waymo/raw/mini`.
 
 If disk-space is a constraint, delete the original split files:
 ```bash
@@ -34,11 +44,23 @@ rm -rf *
 
 5. Prepare the data for training, using **custom processor**:
 
-**NOTE:** this script was borrowed from [here](https://github.com/navarrs/ScenarioCharacterization/blob/main/src/characterization/utils/datasets/waymo_preprocess.py). **It requires Python 3.10 to run**.
+**NOTE:** this script was borrowed from [here](https://github.com/navarrs/ScenarioCharacterization/blob/main/src/characterization/utils/datasets/waymo_preprocess.py).
+**It requires Python 3.10 to run**.
+You may use `uv venv <name> --python 3.10` to create a secondary environment for running it.
+You will need `uv pip install waymo-open-dataset-tf-2-12-0` after activation to install the dependency needed to deserialize the proto files.
+You may need to use `python <script_path>` to run the script rather than `uv run` which invokes the primary (default) virtual environment intended for the main project.
+
 ```bash
 uv run waymo_data_processing.py --raw_data_path /datasets/waymo/raw/mini --proc_data_path /datasets/waymo/processed/mini --split training
 uv run waymo_data_processing.py --raw_data_path /datasets/waymo/raw/mini --proc_data_path /datasets/waymo/processed/mini --split validation
 uv run waymo_data_processing.py --raw_data_path /datasets/waymo/raw/mini --proc_data_path /datasets/waymo/processed/mini --split testing
+```
+
+The training configuration will expect data in `/data/driving` by default (see [`default.yaml`](src/scenetokens/configs/paths/default.yaml) for example).
+It is convenient to create another symlink for it.
+
+```shell
+mkdir -p /data/driving
 ```
 
 ## Prepare the Causal Agents (WOMD) Dataset

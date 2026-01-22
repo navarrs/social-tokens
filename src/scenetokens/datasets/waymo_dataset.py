@@ -1,4 +1,3 @@
-import os
 import pickle
 from pathlib import Path
 
@@ -15,33 +14,21 @@ from characterization.utils.common import AgentType
 from omegaconf import DictConfig
 
 from scenetokens.datasets.base_dataset import BaseDataset
-from scenetokens.utils import data_utils
+from scenetokens.utils import data_utils, pylogger
+
+
+_LOGGER = pylogger.get_pylogger(__name__)
 
 
 class WaymoDataset(BaseDataset):
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config=config)
 
-    def get_dataset_summary(self, data_path: str) -> tuple[list[str], dict[str, str]]:
-        summary_list = []
-        mapping = {}
-        for sub_dir in Path(data_path).iterdir():
-            sub_dir_list = os.listdir(Path(data_path, sub_dir))  # noqa: PTH208
-            # Remove blacklisted scenarios
-            summary_list += sub_dir_list
-            for file in sub_dir_list:
-                mapping[file] = sub_dir
-        print(f"Got {len(summary_list)} scenarios.")
-        return summary_list, mapping
+    def _deserialize_scenario(self, path: Path) -> dict:
+        with path.open("rb") as f:
+            return pickle.load(f)
 
-    def read_scenario(self, data_path: str, mapping: dict, file_name: str) -> dict:
-        sub_dir = mapping[file_name]
-        scenario_filepath = Path(data_path, sub_dir, file_name)
-        with scenario_filepath.open("rb") as f:
-            scenario = pickle.load(f)
-        return scenario  # noqa: RET504
-
-    def repack_scenario(self, scenario: dict) -> Scenario:
+    def _repack_scenario(self, scenario: dict) -> Scenario:
         """Repacks an input scenario in dictionary format into a GlobalScenario."""
         # Repack agent information from input scenario
         agent_data = self.repack_agent_data(scenario["track_infos"])
@@ -222,3 +209,8 @@ class WaymoDataset(BaseDataset):
             difficulty=tracks_to_predict["difficulty"],
             object_type=tracks_to_predict["object_type"],
         )
+
+    def load_as_open_scenario(self, path: Path) -> Scenario:
+        """Get the processed scenario in agent-centric format for HDF5 caching."""
+        raw_scenario = self._deserialize_scenario(path)
+        return self._repack_scenario(raw_scenario)

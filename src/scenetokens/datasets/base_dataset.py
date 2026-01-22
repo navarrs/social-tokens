@@ -16,6 +16,7 @@ import torch
 from omegaconf import DictConfig
 from torch.utils.data import Dataset
 
+from scenetokens.utils import pylogger
 from scenetokens.utils import data_utils
 from scenetokens.utils.constants import BIG_EPSILON, DataSplits, SampleSelection
 from characterization.features.safeshift_features import SafeShiftFeatures
@@ -23,6 +24,10 @@ from characterization.scorer.safeshift_scorer import SafeShiftScorer
 from characterization.schemas import Scenario, AgentData, TracksToPredict, StaticMapData, ScenarioMetadata, ScenarioScores
 from characterization.utils.common import AgentType, AgentTrajectoryMasker
 from characterization.utils.geometric_utils import find_closest_lanes, find_conflict_points
+
+
+_LOGGER = pylogger.get_pylogger(__name__)
+
 
 class BaseDataset(Dataset, ABC):
     """Base dataset loader class for trajectory datasets."""
@@ -92,6 +97,27 @@ class BaseDataset(Dataset, ABC):
                     print(f"Removing {len(self.blacklist)} samples using {sample_selection_strategy}")
             self.load_data()
 
+    @abstractmethod
+    def load_as_open_scenario(self, path: Path) -> Scenario:
+        """Load the given path and return it as a Scenario object."""
+        pass
+
+    def _get_dataset_summary(self, data_path: str) -> dict[str, str]:
+        """Get a summary of filenames and paths for the pickle dataset.
+
+        Args:
+            data_path (str): Path to the directory containing the pickle dataset.
+
+        Returns:
+            dict[str, str]: A dictionary mapping filenames to their full paths.
+        """
+        mapping = {
+            filepath.name: str(filepath)
+            for filepath in Path(data_path).rglob("*.pkl")
+        }
+        _LOGGER.info(f"Got {len(mapping)} scenarios.")
+        return mapping
+
     def load_data(self) -> None:
         """Loads and processes scenario data into N chunks."""
         print(f"Loading {self.split} data...")
@@ -109,25 +135,33 @@ class BaseDataset(Dataset, ABC):
                 file_list = self.get_data_list()
             else:
                 print("Creating cache...")
-                summary_list, mapping = self.get_dataset_summary(data_path)
+                mapping = self._get_dataset_summary(data_path)
                 if self.cache_path.exists():
                     shutil.rmtree(self.cache_path)
                 self.cache_path.mkdir(parents=True, exist_ok=True)
 
                 cpu_count = os.cpu_count()
-                process_num = cpu_count // 2 if cpu_count is not None  and cpu_count > 1 else 1
+                process_num = (
+                    cpu_count // 2 if (
+                        cpu_count is not None
+                        and cpu_count > 1
+                        and len(mapping) > cpu_count
+                        )
+                    else 1
+                )
                 print(f"Using {process_num} processes to load data...")
 
-                summary_splits = np.array_split(summary_list, process_num)
+                summary_splits = np.array_split(list(mapping.keys()), process_num)
                 data_splits = [
-                    (data_path, mapping, list(summary_splits[i]), self.subset_data_tag) for i in range(process_num)
+                    (data_path, mapping, filenames_split, self.subset_data_tag)
+                    for filenames_split in summary_splits
                 ]
 
                 # save the data_splits in a tmp directory
                 Path(self.config.temp_path).mkdir(parents=True, exist_ok=True)
-                for i in range(process_num):
+                for i, data_split in enumerate(data_splits):
                     with Path(self.config.temp_path, f"{i}.pkl").open("wb") as f:
-                        pickle.dump(data_splits[i], f)
+                        pickle.dump(data_split, f)
 
                 with Pool(processes=process_num) as pool:
                     results = pool.map(self.process_data_chunk, list(range(process_num)))
@@ -161,6 +195,9 @@ class BaseDataset(Dataset, ABC):
             num_scenarios_post_blacklist = len(file_list_post_blacklist)
             num_removed_scenarios = num_scenarios - num_scenarios_post_blacklist
             print(f"Total instances: {num_scenarios_post_blacklist} (removed: {num_removed_scenarios})")
+            if not num_scenarios_post_blacklist:
+                err_msg = "No scenarios left after applying blacklist"
+                raise RuntimeError(err_msg)
 
             self.data_loaded.update(file_list_post_blacklist)
 
@@ -178,18 +215,17 @@ class BaseDataset(Dataset, ABC):
     def process_data_chunk(self, worker_index: int) -> dict[str, dict[str, Any]]:
         """Processes scenario data for a given chunk index."""
         with Path(self.config.temp_path, f"{worker_index}.pkl").open("rb") as f:
-            data_chunk = pickle.load(f)
+            data_path, mapping, data_list, dataset_name = pickle.load(f)
 
         file_list = {}
-        data_path, mapping, data_list, dataset_name = data_chunk
         hdf5_path = Path(self.cache_path, f"{worker_index}.h5")
 
         with h5py.File(hdf5_path, "w") as f:
-            for cnt, file_name in enumerate(data_list):
+            for cnt, filename in enumerate(data_list):
                 if worker_index == 0 and cnt % max(int(len(data_list) / 10), 1) == 0:
                     print(f"{cnt}/{len(data_list)} data processed", flush=True)
 
-                output = self.process_scenario(data_path, mapping, file_name)
+                output = self.load_and_process_scenario(Path(mapping[filename]))
                 if output is None:
                     continue
 
@@ -197,6 +233,8 @@ class BaseDataset(Dataset, ABC):
                     grp_name = dataset_name + "-" + str(worker_index) + "-" + str(cnt) + "-" + str(i)
                     grp = f.create_group(grp_name)
                     for key, value in record.items():
+                        if value is None:
+                            continue
                         if isinstance(value, str):
                             value = np.bytes_(value)  # noqa: PLW2901
                         grp.create_dataset(key, data=value)
@@ -254,13 +292,12 @@ class BaseDataset(Dataset, ABC):
 
         return scenario
 
-    def process_scenario(self, data_path: str, mapping: dict, file_name: str) -> list[dict[str, Any]] | None:
-        """Reads and processes a custom scenario."""
-        scenario = self.read_scenario(data_path, mapping, file_name)
+
+    def load_and_process_scenario(self, path: Path) -> list[dict[str, Any]] | None:
+        """Process a scenario into an agent-centric format."""
+        scenario = self.load_as_open_scenario(path)
         # TODO: resolve bare except from Unitraj.W
         try:
-            # Repack custom format into an intermediate general, format defined by 'Scenario'
-            scenario = self.repack_scenario(scenario)
             scenario_scores = None
             if self.autolabel_agents:
                 scenario = self.compute_scenario_map_metadata(scenario)
@@ -269,18 +306,17 @@ class BaseDataset(Dataset, ABC):
 
             # Process intermediate format into final format.
             # NOTE: currently, this is Unitraj's scenario representation. It returns a dictionary not a schema as above.
-            scenario = self.process_agent_centric_scenario(scenario, scenario_scores=scenario_scores)
+            ac_scenario = self.process_agent_centric_scenario(scenario, scenario_scores=scenario_scores)
+            if ac_scenario is not None:
+                # Compute Unitraj's characterizations: Kalman Difficulty and Trajectory Type features.
+                # NOTE: Currently, they're derived from the agent-centric scenario representation. Later on they'll get
+                # moved to ScenarioCharacterization.
+                ac_scenario = self.characterize_scenario(ac_scenario)
 
-            # Compute Unitraj's characterizations: Kalman Difficulty and Trajectory Type features.
-            # NOTE: Currently, they're derived from the agent-centric scenario representation. Later on they'll get
-            # moved to ScenarioCharacterization.
-            scenario = self.characterize_scenario(scenario)
-
-        except Exception as e:  # noqa: BLE001
-            print(f"Warning: {e} in {file_name}")
-            scenario = None
-
-        return scenario
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("error processing scenario: %s", path)
+            ac_scenario = None
+        return ac_scenario
 
     def get_data_list(self) -> dict[str, Any]:
         """Gets the list of data if data has already been peprocessed into a file_list cache."""
@@ -352,7 +388,8 @@ class BaseDataset(Dataset, ABC):
         for i in range(sample_num):
             ret_dict_i = {}
             for k, v in ret_dict.items():
-                ret_dict_i[k] = v[i]
+                # values such as individual_agent_scores can be None rather than an array
+                ret_dict_i[k] = None if v is None else v[i]
             scenario_list.append(ret_dict_i)
         return scenario_list
 
@@ -379,8 +416,10 @@ class BaseDataset(Dataset, ABC):
                 scenario_dict[k] = v.astype(to_dtype)
 
     def get_agents_of_interest_center_points(
-        self, agent_data: AgentData, tracks_to_predict: TracksToPredict, metadata: ScenarioMetadata
-    ) -> tuple[np.ndarray | None, np.ndarray]:
+        self, agent_data: AgentData,
+        tracks_to_predict: TracksToPredict | None,
+        metadata: ScenarioMetadata
+    ) -> tuple[np.ndarray | None, np.ndarray | list]:
         """Gets the centerpoints of the agents of interest in the scenario
             N: number of agents
             D: agent attributes
@@ -394,6 +433,8 @@ class BaseDataset(Dataset, ABC):
             agent_centerpoints (np.ndarray[N, D]): a numpy array containing the N agents of interest centerpoints.
             agent_idxs (np.ndarray(N)): a numpy array containing the indeces of the N agents of interest.
         """
+        if not tracks_to_predict:
+            return None, []
         agent_centerpoints_list = []
         agents_of_interest_idx_list = []
         selected_type = [AgentType[x] for x in self.config.object_type]
@@ -919,14 +960,6 @@ class BaseDataset(Dataset, ABC):
 
     def __len__(self) -> int:
         return len(self.data_loaded_keys)
-
-    @abstractmethod
-    def repack_scenario(self, scenario: dict) -> Scenario:
-        pass
-
-    @abstractmethod
-    def read_scenario(self, data_path: str, mapping: dict, file_name: str) -> dict:
-        pass
 
     @cache  # noqa: B019
     def _get_file(self, file_path: str):  # noqa: ANN202

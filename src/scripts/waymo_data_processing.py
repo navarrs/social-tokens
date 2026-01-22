@@ -317,7 +317,7 @@ def process_waymo_data_with_scenario_proto(data_file: Path, output_path: Path, s
     for cnt, data in enumerate(dataset):
         info = {}
         scenario = scenario_pb2.Scenario()
-        scenario.ParseFromString(bytearray(data.numpy()))
+        scenario.ParseFromString(data.numpy())
         if scenario_ids is not None and scenario.scenario_id not in scenario_ids:
             continue
 
