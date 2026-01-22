@@ -54,8 +54,8 @@ DEFAULT_MODELS=(
 )
 DEFAULT_DEVICES="0"
 DEFAULT_STRATEGIES=(
-  token_random_drop
   random_drop
+  token_random_drop
   simple_token_jaccard_drop
   simple_token_hamming_drop
   gumbel_token_jaccard_drop
