@@ -69,3 +69,15 @@ Run training analysis only:
 uv run -m scenetokens.sample_selection -m run_analysis=true
 ```
 Run training experiment using blacklist created by sample selection experiment.
+
+# Score Distribution Analysis
+
+Visualize the agent score categorical distributions for the agents in a specified dataset:
+```bash
+uv run src/scripts/visualize_agent_score_distribution.py \
+    --data_cache_path /path/to/data_cache
+    --data_subsets name-of-training-set,name-of-validation-set,name-of-testing-set
+    --output_path /path/to/save/the/plots
+```
+
+Output example shown [here](https://github.com/stackav-oss/social-twins/pull/16).
