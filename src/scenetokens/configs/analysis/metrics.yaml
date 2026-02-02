@@ -1,27 +1,22 @@
 # @package _global_
-palette: muted
-
 seed: 42 # Seed for random generators
-base_path: ./datasets/waymo/causal-benchmark-labeled/model_comparison
+show_run_id: false
+models_to_compare: [
+  'scenetransformer',
+  'wayformer',
+  'safe-scenetokens',
+  'scenetokens-student',
+  'scenetokens-teacher-unmasked'
+]
 
-metric_analysis_type: sample_selection_analysis # Either of 'group_analysis' or 'sample_selection_analysis'
-
-# If 'metric_analysis_type' is 'group_analysis', assumes a specific group format which was created manually from
-# MLflow -> Google Sheets -> CSV file with all metrics per experiment in the group.
-group_name: student_bests
-group_file: ${base_path}/${group_name}.csv
-
-# If 'metric_analysis_type' is 'sample_selection_analysis', assumes metrics are organized in a tabular format following
-# MLflow's organization by simply downloading all runs into a CSV file and compares them directly by querying that
-# table for the specified experiments.
-
-metrics_to_compare: [
-  # Trajectory Forecasting Metrics
+trajectory_forecasting_metrics: [
   'brierFDE',
   'minFDE6',
   'minADE6',
   'missRate',
-  # Causal Classification Metrics
+]
+
+causal_metrics: [
   'causalTP',
   'causalTN',
   'causalFP',
@@ -30,4 +25,33 @@ metrics_to_compare: [
   'precision',
   'recall',
 ]
-splits_to_compare: ['testing']
+
+other_metrics: [
+  'Runtime',
+]
+
+# Benchmark analysis settings
+benchmark: null
+benchmark_filepath: null
+benchmark_colormap: null
+benchmark_splits_to_compare: []
+
+# Ego-safeshift analysis
+run_ego_safeshift_analysis: false
+ego_safeshift_benchmark: 'ego-safeshift-causal-benchmark'
+ego_safeshift_filepath: "./meta/runs/ego-safeshift_benchmark.csv"
+ego_safeshift_colormap: colorblind
+ego_safeshift_splits_to_compare: [
+  'test/waymo-causal-ego-safeshift-id',
+  'test/waymo-causal-ego-safeshift-ood',
+]
+
+# Causal benchmark analysis
+run_causal_benchmark_analysis: false
+causal_benchmark: 'causal-benchmark-labeled'
+causal_benchmark_filepath: "./meta/runs/causal_benchmark.csv"
+causal_benchmark_colormap: colorblind
+causal_benchmark_splits_to_compare: [
+  'test/waymo-mini-causal-testing',
+  'test/waymo-remove-noncausal-testing',
+]
