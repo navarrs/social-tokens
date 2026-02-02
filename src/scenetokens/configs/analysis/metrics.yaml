@@ -58,10 +58,16 @@ heatmap_colormap: flare
 highlight_color: dodgerblue
 add_rectangle_annotation: false
 
+# Benchmark analysis settings
+benchmark: null
+benchmark_filepath: null
+benchmark_colormap: null
+benchmark_splits_to_compare: []
+
 # Ego-safeshift analysis
-run_egosafeshift_analysis: true
+run_ego_safeshift_analysis: false
 ego_safeshift_benchmark: 'ego-safeshift-causal-benchmark'
-ego_safeshift_file: "./meta/runs/ego-safeshift_benchmark.csv"
+ego_safeshift_filepath: "./meta/runs/ego-safeshift_benchmark.csv"
 ego_safeshift_colormap: colorblind
 ego_safeshift_splits_to_compare: [
   'test/waymo-causal-ego-safeshift-id',
@@ -71,7 +77,7 @@ ego_safeshift_splits_to_compare: [
 # Causal benchmark analysis
 run_causal_benchmark_analysis: false
 causal_benchmark: 'causal-benchmark-labeled'
-causal_benchmark_file: "./meta/runs/causal_benchmark.csv"
+causal_benchmark_filepath: "./meta/runs/causal_benchmark.csv"
 causal_benchmark_colormap: colorblind
 causal_benchmark_splits_to_compare: [
   'test/waymo-mini-causal-testing',

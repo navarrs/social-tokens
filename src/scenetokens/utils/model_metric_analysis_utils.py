@@ -731,52 +731,66 @@ def _plot_grouped_bar_chart(
                 print(f"{metric_name:30s}: {best_model:30s} ({best_value:.4f})")
 
 
-def plot_egosafeshift(config: DictConfig, log: Logger, output_path: Path) -> None:
-    """Plots ego-safeshift metrics across different models and sample selection strategies.
+def run_benchmark_analysis(config: DictConfig, log: Logger, output_path: Path) -> None:
+    """Plots multiple In-Distribution (ID) vs Out-of-Distribution (OOD) benchmark analyses based on a CSV file
+    containing model metrics.
 
     Args:
         config (DictConfig): encapsulates model analysis configuration parameters.
         log (Logger): Logger for logging analysis information.
         output_path (Path): Directory to save the generated plots.
     """
-    output_path = output_path / "ego_safeshift"
+    output_path = output_path / config.benchmark
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Load metrics CSV
-    metrics_filepath = Path(config.ego_safeshift_file)
+    metrics_filepath = Path(config.benchmark_filepath)
     if not metrics_filepath.exists():
         log.error("Metrics file not found at %s", metrics_filepath)
         return
     metrics_df = pd.read_csv(metrics_filepath)
 
+    # Ensure model name and run identifier exists
+    if "Name" not in metrics_df.columns:
+        log.error("CSV must contain a 'Name' column")
+        return
+    if "ID" not in metrics_df.columns:
+        metrics_df["ID"] = np.arange(len(metrics_df))
+
     # Filter for ego-safeshift-causal-benchmark experiments
-    egosafeshift_df = metrics_df[metrics_df["Name"].str.contains(config.ego_safeshift_benchmark, na=False)].copy()
-    print("Experiments on ego-safeshift-causal-benchmark:")
-    print(egosafeshift_df[["Name", "State"]].to_string(index=False))
-    print(f"\nTotal experiments found: {len(egosafeshift_df)}")
+    benchmark_df = metrics_df[metrics_df["Name"].str.contains(config.benchmark, na=False)].copy()
+    print(f"Experiments on {config.benchmark}:")
+    print(benchmark_df[["Name", "State"]].to_string(index=False))
+    print(f"\nTotal experiments found: {len(benchmark_df)}")
 
     # Extract model names
-    egosafeshift_df["model_name"] = egosafeshift_df["Name"].str.replace(f"{config.ego_safeshift_benchmark}_", "")
-    egosafeshift_df["model_name"] = egosafeshift_df["model_name"].map(lambda x: MODEL_NAME_MAP.get(str(x), str(x)))  # pyright: ignore[reportUnknownLambdaType]
+    benchmark_df["model_name"] = benchmark_df["Name"].str.replace(f"{config.benchmark}_", "")
+    benchmark_df["model_name"] = benchmark_df["model_name"].map(lambda x: MODEL_NAME_MAP.get(str(x), str(x)))  # pyright: ignore[reportUnknownLambdaType]
     if config.show_run_id:
-        egosafeshift_df["Model"] = (
-            egosafeshift_df["model_name"].astype(str) + "[" + egosafeshift_df["ID"].astype(str) + "]"
-        )
+        benchmark_df["Model"] = benchmark_df["model_name"].astype(str) + "[" + benchmark_df["ID"].astype(str) + "]"
     else:
-        egosafeshift_df["Model"] = egosafeshift_df["model_name"].astype(str)
+        benchmark_df["Model"] = benchmark_df["model_name"].astype(str)
+
     # Key metrics to compare
+    id_split, ood_split = config.benchmark_splits_to_compare
+    id_split_name = id_split.split("/")[-1]
+    ood_split_name = ood_split.split("/")[-1]
     metrics = {
-        f"{split}/{metric}": f"{metric} ({split.split('-')[-1]},↓)"
-        for metric, split in product(config.trajectory_forecasting_metrics, config.ego_safeshift_splits_to_compare)
+        f"{split}/{metric}": f"{metric} ({split.split('/')[-1]},↓)"
+        for metric, split in product(
+            config.trajectory_forecasting_metrics,
+            config.benchmark_splits_to_compare,
+        )
     }
-    log.info("Plotting sample selection sweep lineplots for metrics: %s", metrics)
+    log.info("Comparing splits: %s vs %s", id_split, ood_split)
+    log.info("Metrics: %s", metrics)
 
     # Create a summary dataframe
     summary_data = []
-    for _, row in egosafeshift_df.iterrows():
+    for _, row in benchmark_df.iterrows():
         model_metrics = {"Model": row["Model"]}
         for metric_col, metric_name in metrics.items():
-            if metric_col in egosafeshift_df.columns:
+            if metric_col in benchmark_df.columns:
                 model_metrics[metric_name] = row[metric_col]
         summary_data.append(model_metrics)
 
@@ -784,7 +798,7 @@ def plot_egosafeshift(config: DictConfig, log: Logger, output_path: Path) -> Non
     print("Metrics Summary:")
     print(summary_df.to_string(index=False, float_format="{:.3f}".format))
 
-    colormap = config.get("ego_safeshift_colormap", "tab10")
+    colormap = config.get(f"{config.benchmark_colormap}", "tab10")
 
     sns.set_theme(
         style="whitegrid",
@@ -802,109 +816,6 @@ def plot_egosafeshift(config: DictConfig, log: Logger, output_path: Path) -> Non
     _plot_benchmark_comparison(summary_df, metrics, output_path, colormap)
 
     # Plot ID vs OOD comparison
-    _plot_distribution_shift_comparison(
-        summary_df, output_path, colormap, id_metric="brierFDE (id,↓)", ood_metric="brierFDE (ood,↓)"
-    )
-
-    # Plot grouped bar chart for key metrics comparison (commented out for now)
-    metric_pairs = [
-        ("brierFDE (id,↓)", "brierFDE (ood,↓)", "brierFDE"),
-        ("minFDE6 (id,↓)", "minFDE6 (ood,↓)", "minFDE6"),
-        ("minADE6 (id,↓)", "minADE6 (ood,↓)", "minADE6"),
-        ("missRate (id,↓)", "missRate (ood,↓)", "missRate"),
-    ]
-    _plot_performance_gaps(summary_df, output_path, metric_pairs)
-
-    # Create a grouped bar chart for comprehensive comparison
-    _plot_grouped_bar_chart(
-        summary_df, metrics, output_path, key_metrics_display=["brierFDE (id,↓)", "brierFDE (ood,↓)"]
-    )
-
-    print("\n✓ Analysis complete!")
-
-
-def plot_causal_benchmark(config: DictConfig, log: Logger, output_path: Path) -> None:
-    """Plots causal benchmark metrics across different models and repeated runs,
-    comparing two causal test splits and visualizing performance gaps.
-
-    Args:
-        config (DictConfig): Causal benchmark configuration.
-        log (Logger): Logger for analysis output.
-        output_path (Path): Directory to save plots.
-    """
-    output_path = output_path / "causal_benchmark"
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    # Load metrics CSV
-    metrics_filepath = Path(config.causal_benchmark_file)
-    if not metrics_filepath.exists():
-        log.error("Causal benchmark CSV not found at %s", metrics_filepath)
-        return
-    metrics_df = pd.read_csv(metrics_filepath)
-    # Ensure model name and run identifier exists
-    if "Name" not in metrics_df.columns:
-        log.error("CSV must contain a 'Name' column")
-        return
-    if "ID" not in metrics_df.columns:
-        metrics_df["ID"] = np.arange(len(metrics_df))
-
-    metrics_df["model_name"] = metrics_df["Name"].str.replace(f"{config.causal_benchmark}_", "")
-    metrics_df["model_name"] = metrics_df["model_name"].map(lambda x: MODEL_NAME_MAP.get(str(x), str(x)))  # pyright: ignore[reportUnknownLambdaType]
-    if config.show_run_id:
-        metrics_df["Model"] = metrics_df["model_name"].astype(str) + "[" + metrics_df["ID"].astype(str) + "]"
-    else:
-        metrics_df["Model"] = metrics_df["model_name"].astype(str)
-
-    print("\nCausal benchmark runs:")
-    print(metrics_df[["model_name", "ID"]].to_string(index=False))
-    print(f"\nTotal runs found: {len(metrics_df)}")
-
-    # Metric column construction
-    id_split, ood_split = config.causal_benchmark_splits_to_compare
-    id_split_name = id_split.split("/")[-1]
-    ood_split_name = ood_split.split("/")[-1]
-    metrics = {
-        f"{split}/{metric}": f"{metric} ({split.split('/')[-1]},↓)"
-        for metric, split in product(
-            config.trajectory_forecasting_metrics,
-            config.causal_benchmark_splits_to_compare,
-        )
-    }
-
-    log.info("Comparing causal splits: %s vs %s", id_split, ood_split)
-    log.info("Metrics: %s", metrics)
-
-    # Create summary dataframe (run-level, no aggregation)
-    summary_data = []
-    for _, row in metrics_df.iterrows():
-        entry = {"Model": row["Model"]}
-        for metric_col, display_name in metrics.items():
-            if metric_col in metrics_df.columns:
-                entry[display_name] = row[metric_col]
-        summary_data.append(entry)
-
-    summary_df = pd.DataFrame(summary_data)
-
-    print("\nCausal Metrics Summary (run-level):")
-    print(summary_df.to_string(index=False, float_format="{:.3f}".format))
-
-    colormap = config.get("causal_benchmark_colormap", "tab20")
-
-    sns.set_theme(
-        style="whitegrid",
-        context="talk",
-        rc={
-            "axes.spines.top": False,
-            "axes.spines.right": False,
-            "grid.alpha": 0.25,
-            "axes.titleweight": "bold",
-            "axes.labelweight": "bold",
-        },
-    )
-
-    # Benchmark comparison (run-level bars) - All metrics
-    _plot_benchmark_comparison(summary_df, metrics, output_path, colormap)
-
     # Distribution Shift Comparison (brierFDE)
     _plot_distribution_shift_comparison(
         summary_df,
@@ -914,21 +825,21 @@ def plot_causal_benchmark(config: DictConfig, log: Logger, output_path: Path) ->
         ood_metric=f"brierFDE ({ood_split_name},↓)",
     )
 
-    # Comprehensive Performance Gaps (all metrics)
+    # Plot grouped bar chart for key metrics comparison (commented out for now)
     metric_pairs = [
         (f"{metric} ({id_split_name},↓)", f"{metric} ({ood_split_name},↓)", metric)
         for metric in config.trajectory_forecasting_metrics
     ]
     _plot_performance_gaps(summary_df, output_path, metric_pairs)
 
-    # Group bar chart for key metrics comparison
+    # Create a grouped bar chart for comprehensive comparison
     key_metrics_display = [
         f"{config.trajectory_forecasting_metrics[0]} ({id_split_name},↓)",
         f"{config.trajectory_forecasting_metrics[0]} ({ood_split_name},↓)",
     ]
     _plot_grouped_bar_chart(summary_df, metrics, output_path, key_metrics_display=key_metrics_display)
 
-    print("\n✓ Causal benchmark analysis complete!")
+    print("\n✓ Analysis complete!")
 
 
 def sample_selection_analysis(config: DictConfig, log: Logger) -> None:
@@ -1116,58 +1027,3 @@ def model_to_model_analysis(config: DictConfig, log: Logger) -> None:  # noqa: P
         output_filepath = output_path / f"generalization_{metric}.png"
         plt.savefig(output_filepath, dpi=200)
         plt.close()
-
-
-def group_analysis(config: DictConfig, log: Logger) -> None:
-    """Loads a CSV containing model metrics from a specified group and produces per-metric barplots with model-to-model
-    comparisons.
-
-    Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        log (Logger): Logger for logging analysis information.
-    """
-    base_path = Path(config.base_path)
-    output_path = base_path / config.group_name
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    metrics_df = pd.read_csv(config.group_file)
-
-    # Each metric in the dataframe follows the pattern 'split/metric_type' or 'split/subset/metric_type'. Below, we
-    # filter the metrics by split and metric
-    for split, metric in product(config.splits_to_compare, config.metrics_to_compare):
-        log.info("Comparing split: %s and metric: %s", split, metric)
-
-        # Get a sub dataframe that contains only the desired metric from the desired split
-        filtered_df = metrics_df[metrics_df.Metric.str.contains(split) & metrics_df.Metric.str.contains(metric)]
-        if len(filtered_df) == 0:
-            log.info("Missing metric %s; skipping analysis.", metric)
-            continue
-
-        if metric == "missRate":
-            filtered_df = filtered_df[~filtered_df.Metric.str.contains(metric + "6")]
-
-        # Ad-hoc renaming 'split/dataset-subset-subsplit/metric' -> 'subset'
-        filtered_df.Metric = filtered_df.Metric.str.extract(r"(?<=/)([^/]+)(?=/)", expand=False)
-        filtered_df.Metric = filtered_df.Metric.str.extract(r"(?<=-)([^/]+)(?=-)", expand=False)
-        df_melted = filtered_df.melt(id_vars=["Metric"], var_name="Model", value_name="Value")
-
-        # Create barplot comparing the model groups
-        plt.figure(figsize=(10, 6))
-        sns.barplot(x="Metric", y="Value", hue="Model", data=df_melted, palette=config.palette)
-
-        # Scale the y-axis to highlight the metric differences. This just shows the y-range from 10% less than the min
-        # metric value to 10% more than the max metric value.
-        min_value, max_value = df_melted.min().Value, df_melted.max().Value
-        plt.ylim(min_value - 0.1 * min_value, max(max_value + 0.1 * max_value, 1.0))
-
-        plt.title(f"Split: {split}, Metric: {metric}")
-        plt.xlabel("Metrics by Subset")
-        plt.ylabel("Metrics Values")
-        plt.legend(title="Models", title_fontsize="12", fontsize="10", loc="upper left")
-
-        plt.grid(axis="y", linestyle="--", alpha=0.5)
-        plt.tight_layout()
-
-        # Show the plot
-        output_filepath = f"{output_path}/{split}_{metric}.png"
-        plt.savefig(output_filepath, dpi=200)
