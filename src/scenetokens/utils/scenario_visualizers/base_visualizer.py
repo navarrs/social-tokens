@@ -66,7 +66,7 @@ class BaseVisualizer(ABC):
             raise AssertionError(error_message)
 
         self.buffer_distance = config.get("distance_to_ego_zoom_in", 5.0)  # in meters
-        self.distance_to_ego_zoom_in = config.get("distance_to_ego_zoom_in", 50.0)  # in meters
+        self.distance_to_ego_zoom_in = config.get("distance_to_ego_zoom_in", 80.0)  # in meters
 
     @property
     def is_ego_centric(self) -> bool:
@@ -438,11 +438,11 @@ class BaseVisualizer(ABC):
             ax.set_ylim(ego_position[1] - distance, ego_position[1] + distance)
 
         else:
-            for n, a in enumerate(ax.reshape(-1)):
+            for _, a in enumerate(ax.reshape(-1)):
                 a.set_xticks([])
                 a.set_yticks([])
-                if n == 0:
-                    continue
+                # if n == 0:
+                #     continue
 
                 a.set_xlim(ego_position[0] - distance, ego_position[0] + distance)
                 a.set_ylim(ego_position[1] - distance, ego_position[1] + distance)

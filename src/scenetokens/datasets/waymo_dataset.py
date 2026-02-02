@@ -28,7 +28,7 @@ class WaymoDataset(BaseDataset):
         with path.open("rb") as f:
             return pickle.load(f)
 
-    def _repack_scenario(self, scenario: dict) -> Scenario:
+    def repack_scenario(self, scenario: dict) -> Scenario:
         """Repacks an input scenario in dictionary format into a GlobalScenario."""
         # Repack agent information from input scenario
         agent_data = self.repack_agent_data(scenario["track_infos"])
@@ -213,4 +213,4 @@ class WaymoDataset(BaseDataset):
     def load_as_open_scenario(self, path: Path) -> Scenario:
         """Get the processed scenario in agent-centric format for HDF5 caching."""
         raw_scenario = self._deserialize_scenario(path)
-        return self._repack_scenario(raw_scenario)
+        return self.repack_scenario(raw_scenario)

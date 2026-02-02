@@ -3,7 +3,7 @@ defaults:
   - train.yaml
   - _self_
   - analysis: tokenization
-  - visualization: viz_static
+  - visualization: viz_causal
   - override dataset: waymo_analysis.yaml
 
 # General Parameters
@@ -25,7 +25,10 @@ scenarios_path: ${paths.base_path}/processed/mini_causal/training # Specify path
 # Specify name of experiment to consider
 paths:
   # Student Model
-  experiment_dir: causal-benchmark-labeled_scenetokens-student_2025-12-10_11-00-03
+  # experiment_dir: causal-benchmark-labeled_scenetokens-student_2025-12-10_11-00-03
+
+  # Teacher Model
+  experiment_dir: causal-benchmark-labeled_scenetokens-teacher-unmasked_2026-01-29_19-27-36
 
   #  Safe-ST Model (ckpt: epoch_139.ckpt)
   # experiment_dir: causal-benchmark-labeled_safe-scenetokens_safe-weight_2026-01-13_18-45-53
