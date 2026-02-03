@@ -15,8 +15,6 @@ from omegaconf import DictConfig
 from scenetokens.utils.constants import SMALL_EPSILON
 
 
-plt.style.use("seaborn-v0_8-whitegrid")
-
 MODEL_NAME_MAP = {
     "wayformer": "Wayformer",
     "scenetransformer": "SceneTransformer",
@@ -230,6 +228,8 @@ def plot_sample_selection_sweep_lineplot(config: DictConfig, log: Logger, output
         log (Logger): Logger for logging analysis information.
         output_path (Path): Directory to save the generated plots.
     """
+    plt.style.use("seaborn-v0_8-whitegrid")
+
     output_path = output_path / "sample_selection_lineplots"
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -740,6 +740,8 @@ def run_benchmark_analysis(config: DictConfig, log: Logger, output_path: Path) -
         log (Logger): Logger for logging analysis information.
         output_path (Path): Directory to save the generated plots.
     """
+    plt.style.use("seaborn-v0_8-whitegrid")
+
     output_path = output_path / config.benchmark
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -840,83 +842,6 @@ def run_benchmark_analysis(config: DictConfig, log: Logger, output_path: Path) -
     _plot_grouped_bar_chart(summary_df, metrics, output_path, key_metrics_display=key_metrics_display)
 
     print("\n✓ Analysis complete!")
-
-
-def sample_selection_analysis(config: DictConfig, log: Logger) -> None:
-    """Loads a CSV containing all model metrics downlaoded from MLflow from produces per-metric barplots with sample
-    selection comparisons.
-
-    Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        log (Logger): Logger for logging anslysis information.
-    """
-    base_path = Path(config.base_path)
-    output_path = base_path / "sample_selection_analysis"
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    # The 'all_runs.csv' file contains the metrics for all experiments and is exported from MLflow
-    metrics_df = pd.read_csv(base_path / "all_runs.csv")
-
-    # Models to analyze
-    models = ["scenetf", "wayformer", "st-student", "st-teacher", "st-teacher-u"]
-    sample_selection_strategies = ["none", "uniform-random", "token-random", "token-jaccsim", "token-jaccgum"]
-    subset = ["waymo-mini-causal-", "waymo-remove-noncausal-"]
-
-    for split, metric, model in product(config.splits_to_compare, config.metrics_to_compare, models):
-        log.info("Comparing split: %s, metric: %s, model: %s", split, metric, model)
-
-        # select columns that contain the split string
-        metric_cols = [column for column in metrics_df.columns if metric in column]
-        subset_cols = [column for column in metric_cols if any(sub in column for sub in subset)]
-        valid_cols = ["Name"] + [column for column in subset_cols if split in column]
-        if not valid_cols:
-            log.info("No columns found for split %s; skipping.", split)
-            continue
-
-        # filter rows by model and sample selection strategy, keep only the split-related columns + model_name
-        filtered_df = metrics_df[valid_cols].copy()
-        if filtered_df.empty:
-            log.info("Missing data; skipping")
-            continue
-
-        strategy_models = [model] + [
-            model + f"_{ss_strategy}" for ss_strategy in sample_selection_strategies if ss_strategy != "none"
-        ]
-        filtered_df = filtered_df[filtered_df["Name"].isin(strategy_models)]
-        # preserve the desired model order by making "Name" a categorical with the strategy_models ordering
-        filtered_df["Name"] = pd.Categorical(filtered_df["Name"], categories=strategy_models, ordered=True)
-        filtered_df = filtered_df.sort_values("Name").reset_index(drop=True)
-
-        # Melt for seaborn plotting
-        cols_to_melt = [col for col in filtered_df.columns if col != "Name"]
-        df_melted = filtered_df.melt(id_vars=["Name"], value_vars=cols_to_melt, var_name="Metric", value_name="Value")
-        if metric == "missRate":
-            df_melted = df_melted[~df_melted.Metric.str.contains(metric + "6")]
-
-        # skip if all values are NaN
-        if df_melted["Value"].isna().all():  # pyright: ignore[reportGeneralTypeIssues]
-            log.info("All values are NaN for split=%s, metric=%s, model=%s; skipping.", split, metric, model)
-            continue
-
-        # Create barplot comparing the model groups
-        plt.subplots(figsize=(10, 6))
-        sns.barplot(x="Metric", y="Value", hue="Name", data=df_melted, palette=config.palette)
-
-        min_value, max_value = df_melted.min().Value, df_melted.max().Value
-        plt.ylim(min_value - 0.1 * min_value, max(max_value + 0.1 * max_value, 1.0))
-
-        plt.title(f"Sample Selection Analysis for {model}")
-        plt.xlabel("Metrics")
-        plt.ylabel("Metrics Values")
-        plt.legend(title="Models", title_fontsize="12", fontsize="10", loc="upper left")
-
-        plt.grid(axis="y", linestyle="--", alpha=0.5)
-        plt.tight_layout()
-
-        # Show the plot
-        output_filepath = output_path / f"{split}_{model}_{metric}.png"
-        plt.savefig(output_filepath, dpi=200)
-        plt.close()
 
 
 def model_to_model_analysis(config: DictConfig, log: Logger) -> None:  # noqa: PLR0915

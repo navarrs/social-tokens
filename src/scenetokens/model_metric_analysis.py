@@ -7,6 +7,7 @@ Example usage:
 See `docs/ANALYSIS.md` and 'configs/model_metric_analysis.yaml' for more argument details.
 """
 
+import copy
 import random
 from pathlib import Path
 from time import time
@@ -39,18 +40,20 @@ def main(config: DictConfig) -> float | None:
         utils.plot_sample_selection_sweep_heatmap(config, log, output_path)
 
     if config.run_ego_safeshift_analysis:
-        config.benchmark = config.ego_safeshift_benchmark
-        config.benchmark_filepath = config.ego_safeshift_filepath
-        config.benchmark_colormap = config.ego_safeshift_colormap
-        config.benchmark_splits_to_compare = config.ego_safeshift_splits_to_compare
-        utils.run_benchmark_analysis(config, log, output_path)
+        ego_benchmark_config = copy.deepcopy(config)
+        ego_benchmark_config.benchmark = config.ego_safeshift_benchmark
+        ego_benchmark_config.benchmark_filepath = config.ego_safeshift_filepath
+        ego_benchmark_config.benchmark_colormap = config.ego_safeshift_colormap
+        ego_benchmark_config.benchmark_splits_to_compare = config.ego_safeshift_splits_to_compare
+        utils.run_benchmark_analysis(ego_benchmark_config, log, output_path)
 
     if config.run_causal_benchmark_analysis:
-        config.benchmark = config.causal_benchmark
-        config.benchmark_filepath = config.causal_benchmark_filepath
-        config.benchmark_colormap = config.causal_benchmark_colormap
-        config.benchmark_splits_to_compare = config.causal_benchmark_splits_to_compare
-        utils.run_benchmark_analysis(config, log, output_path)
+        causal_benchmark_config = copy.deepcopy(config)
+        causal_benchmark_config.benchmark = config.causal_benchmark
+        causal_benchmark_config.benchmark_filepath = config.causal_benchmark_filepath
+        causal_benchmark_config.benchmark_colormap = config.causal_benchmark_colormap
+        causal_benchmark_config.benchmark_splits_to_compare = config.causal_benchmark_splits_to_compare
+        utils.run_benchmark_analysis(causal_benchmark_config, log, output_path)
 
     log.info("Total time: %s second", time() - start)
     log.info("Process completed!")
