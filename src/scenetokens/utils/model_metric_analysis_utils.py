@@ -8,12 +8,12 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.axes import Axes
+from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
 from omegaconf import DictConfig
 
 from scenetokens.utils.constants import SMALL_EPSILON
 
-
-plt.style.use("seaborn-v0_8-whitegrid")
 
 MODEL_NAME_MAP = {
     "wayformer": "Wayformer",
@@ -22,6 +22,419 @@ MODEL_NAME_MAP = {
     "scenetokens-teacher-unmasked": "Causal-ST",
     "safe-scenetokens": "Safe-ST",
 }
+
+
+def _plot_sample_selection_sweep_lineplot(  # noqa: PLR0915
+    config: DictConfig, log: Logger, output_path: Path, metrics_df: pd.DataFrame, suffix: str = ""
+) -> None:
+    """Wrapper to call plot_sample_selection_sweep_lineplot for a specific metrics file.
+
+    Args:
+        config (DictConfig): encapsulates model analysis configuration parameters.
+        log (Logger): Logger for logging analysis information.
+        output_path (Path): Directory to save the generated plots.
+        metrics_df (pd.DataFrame): DataFrame containing the metrics data.
+        suffix (str): Suffix to append to output filenames to distinguish different metrics files.
+    """
+    metrics = config.trajectory_forecasting_metrics + config.other_metrics
+    log.info("Plotting sample selection sweep lineplots for metrics: %s", metrics)
+    retention_pcts = list(map(float, config.sample_retention_percentages))
+
+    # Create a colormap for the strategies
+    cmap = plt.cm.get_cmap(config.get("lineplot_colormap", "tab10"))
+    colors = [cmap(i) for i in range(cmap.N)]
+    colormap = {s: colors[i % len(colors)] for i, s in enumerate(config.sample_selection_strategies_to_compare)}
+
+    for model, split in product(config.models_to_compare, config.sample_selection_splits_to_compare):
+        subsplit = split.split("/")[-1]
+        log.info("Creating sweep plot for model=%s, split=%s", model, split)
+
+        fig, axes = plt.subplots(1, len(metrics), figsize=(6 * len(metrics), 4.5), squeeze=False)
+        for i, metric in enumerate(metrics):
+            ax = axes[0, i]
+            column = f"{split}/{metric}" if metric in config.trajectory_forecasting_metrics else metric
+
+            # Plot each sample selection strategy
+            best_value, best_strategy, best_x, best_y, all_y_values = np.inf, None, None, None, []
+            for strategy in config.sample_selection_strategies_to_compare:
+                sweep_prefix = f"{config.sample_selection_benchmark}_{model}_{strategy}"
+                sweep_df = metrics_df[metrics_df["Name"].str.startswith(sweep_prefix)]
+
+                # Collect y values across retention percentages
+                y = []
+                for pct in retention_pcts:
+                    row = sweep_df[sweep_df["Name"] == f"{sweep_prefix}_{pct}"]
+                    if not row.empty and column in row.columns:
+                        val = row.iloc[0][column]
+                        y.append(val)
+                        all_y_values.append(val)
+                    else:
+                        y.append(np.nan)
+                y = np.array(y, dtype=float)
+                if metric == "Runtime":
+                    y = y / 3600.0  # convert to hours
+                    all_y_values = [v / 3600.0 for v in all_y_values]
+
+                # Track best value
+                if np.nanmin(y) < best_value:
+                    best_value = np.nanmin(y)
+                    best_strategy = strategy
+                    idx = int(np.nanargmin(y))
+                    best_x = retention_pcts[idx]
+                    best_y = y[idx]
+
+                # Plot metrics across retention percentages
+                ax.plot(retention_pcts, y, marker="o", ms=6, lw=2.5, c=colormap[strategy], alpha=0.9, label=strategy)
+
+            # Highlight best strategy point
+            if best_strategy is not None:
+                ax.plot(best_x, best_y, marker="*", ms=16, c=colormap[best_strategy], mec="k", zorder=10, label="Best")
+
+            # Add base model (no sample selection) reference line
+            base_experiment = f"{config.sample_selection_benchmark}_{model}"
+            base_experiment_df = metrics_df[metrics_df["Name"] == base_experiment]
+            if not base_experiment_df.empty and column in base_experiment_df.columns:
+                base_value = base_experiment_df[column].min()
+                if metric == "Runtime":
+                    base_value = base_value / 3600.0  # convert to hours
+                ax.axhline(base_value, ls="--", lw=2, c="black", alpha=0.7, label="Base model")
+                all_y_values.append(base_value)
+
+            # Auto-scale y-axis with padding
+            if all_y_values:
+                ymin, ymax = np.nanmin(all_y_values), np.nanmax(all_y_values)
+                padding = 0.5 * (ymax - ymin) if ymax > ymin else 0.05
+                ax.set_ylim(ymin - padding, ymax + padding)
+
+            ax.set_title(metric.replace("_", " "), pad=10)
+            ax.set_xlabel("Data Retention (%)")
+            ax.set_ylabel("Metric Value")
+            ax.set_xticks(retention_pcts)
+            ax.set_xticklabels([f"{int(p * 100)}%" for p in retention_pcts])
+            ax.grid(visible=True, linestyle="--", linewidth=0.5, alpha=0.4)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.legend().remove()
+
+        # Shared legend at the bottom
+        handles, labels = axes[0, 0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc="lower center", ncol=min(len(labels), 6), frameon=False)
+        plt.tight_layout(rect=(0, 0.1, 1, 1))
+
+        output_filepath = output_path / f"{model}_{subsplit}{suffix}.png"
+        fig.savefig(output_filepath, dpi=200)
+        plt.close(fig)
+        log.info("Saved sweep plot to %s", output_filepath)
+
+
+def _plot_joint_sample_selection_sweep_lineplot(
+    config: DictConfig, log: Logger, output_path: Path, metrics_dataframes: dict[str, pd.DataFrame]
+) -> None:
+    """Creates subplots for each strategy, showing different dataframe versions (which are metrics file versions) as
+    separate lines.
+
+    Args:
+        config (DictConfig): encapsulates model analysis configuration parameters.
+        log (Logger): Logger for logging analysis information.
+        output_path (Path): Directory to save the generated plots.
+        metrics_dataframes (dict[str, pd.DataFrame]): Dictionary of DataFrames containing the metrics for each file.
+    """
+    metrics = config.trajectory_forecasting_metrics + config.other_metrics
+    log.info("Plotting sample selection sweep lineplots for metrics: %s", metrics)
+    retention_pcts = list(map(float, config.sample_retention_percentages))
+
+    # Create a colormap for the dataframe versions
+    cmap = plt.cm.get_cmap(config.get("lineplot_colormap", "tab10"))
+    colors = [cmap(i) for i in range(cmap.N)]
+    colormap = {version: colors[i % len(colors)] for i, version in enumerate(metrics_dataframes.keys())}
+
+    for model, split in product(config.models_to_compare, config.sample_selection_splits_to_compare):
+        subsplit = split.split("/")[-1]
+
+        for strategy in config.sample_selection_strategies_to_compare:
+            log.info("Creating sweep plot for model=%s, split=%s, strategy=%s", model, split, strategy)
+
+            fig, axes = plt.subplots(1, len(metrics), figsize=(6 * len(metrics), 4.5), squeeze=False)
+            for i, metric in enumerate(metrics):
+                ax = axes[0, i]
+                column = f"{split}/{metric}" if metric in config.trajectory_forecasting_metrics else metric
+
+                # Plot each dataframe version for this strategy
+                all_y_values = []
+                for version_key, sweep_df in metrics_dataframes.items():
+                    sweep_prefix = f"{config.sample_selection_benchmark}_{model}_{strategy}"
+
+                    # Collect y values across retention percentages
+                    y = []
+                    for pct in retention_pcts:
+                        row = sweep_df[sweep_df["Name"] == f"{sweep_prefix}_{pct}"]
+                        if not row.empty and column in row.columns:
+                            val = row.iloc[0][column]
+                            y.append(val)
+                            all_y_values.append(val)
+                        else:
+                            y.append(np.nan)
+                    y = np.array(y, dtype=float)
+                    if metric == "Runtime":
+                        y = y / 3600.0  # convert to hours
+                        all_y_values = [v / 3600.0 for v in all_y_values]
+
+                    # Plot metrics across retention percentages
+                    ax.plot(
+                        retention_pcts,
+                        y,
+                        marker="o",
+                        ms=6,
+                        lw=2.5,
+                        c=colormap[version_key],
+                        alpha=0.9,
+                        label=version_key,
+                    )
+
+                # Auto-scale y-axis with padding
+                if all_y_values:
+                    ymin, ymax = np.nanmin(all_y_values), np.nanmax(all_y_values)
+                    padding = 0.5 * (ymax - ymin) if ymax > ymin else 0.05
+                    ax.set_ylim(ymin - padding, ymax + padding)
+
+                ax.set_title(metric.replace("_", " "), pad=10)
+                ax.set_xlabel("Data Retention (%)")
+                ax.set_ylabel("Metric Value")
+                ax.set_xticks(retention_pcts)
+                ax.set_xticklabels([f"{int(p * 100)}%" for p in retention_pcts])
+                ax.grid(visible=True, linestyle="--", linewidth=0.5, alpha=0.4)
+                ax.spines["top"].set_visible(False)
+                ax.spines["right"].set_visible(False)
+                ax.legend().remove()
+
+            # Shared legend at the bottom
+            handles, labels = axes[0, 0].get_legend_handles_labels()
+            fig.legend(handles, labels, loc="lower center", ncol=min(len(labels), 6), frameon=False)
+            plt.tight_layout(rect=(0, 0.1, 1, 1))
+
+            output_filepath = output_path / f"{model}_{subsplit}_{strategy}.png"
+            fig.savefig(output_filepath, dpi=200)
+            plt.close(fig)
+            log.info("Saved sweep plot to %s", output_filepath)
+
+
+def plot_sample_selection_sweep_lineplot(config: DictConfig, log: Logger, output_path: Path) -> None:
+    """For each (model, subsplit), creates a figure with one subplot per metric. Each subplot shows metric values across
+    retention percentages for all sample selection strategies, plus a horizontal base-model reference line. Highlights
+    best strategy, auto-scales y-axis, and adds confidence bands when available.
+
+    Args:
+        config (DictConfig): encapsulates model analysis configuration parameters.
+        log (Logger): Logger for logging analysis information.
+        output_path (Path): Directory to save the generated plots.
+    """
+    plt.style.use("seaborn-v0_8-whitegrid")
+
+    output_path = output_path / "sample_selection_lineplots"
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    # Load metrics CSV
+    metrics_dataframes = {}
+    for file in config.sample_selection_files:
+        log.info("Processing sample selection sweep lineplots for file: %s", file)
+        metrics_filepath = Path(file)
+        if not metrics_filepath.exists():
+            log.error("Sample selection CSV not found at %s", metrics_filepath)
+            return
+        metrics_df = pd.read_csv(metrics_filepath)
+        suffix = Path(file).stem.split("_")[-1]
+        metrics_dataframes[suffix] = metrics_df
+        _plot_sample_selection_sweep_lineplot(config, log, output_path, metrics_df, f"_{suffix}")
+
+    if len(metrics_dataframes) > 1:
+        _plot_joint_sample_selection_sweep_lineplot(config, log, output_path, metrics_dataframes)
+
+
+def plot_sample_selection_sweep_heatmap(config: DictConfig, log: Logger, output_path: Path) -> None:  # noqa: PLR0915, PLR0912
+    """For each split and metric, creates a figure with P heatmaps (one per retention percentage). Each heatmap shows:
+    - rows: models
+    - columns: strategies
+    - color: metric value (lower is better)
+    """
+    output_path = output_path / "sample_selection_heatmaps"
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    plt.rcParams.update(
+        {
+            "axes.titlesize": 11,
+            "axes.labelsize": 10,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "figure.titlesize": 14,
+        }
+    )
+
+    # Load metrics CSV
+    base_path = Path(config.base_path)
+    metrics_filepath = base_path / config.metrics_file
+    if not metrics_filepath.exists():
+        log.error("Metrics file not found at %s", metrics_filepath)
+        return
+    metrics_df = pd.read_csv(metrics_filepath)
+
+    cmap = sns.color_palette(config.get("heatmap_colormap", "mako_r"), as_cmap=True)
+    metrics = config.trajectory_forecasting_metrics + config.other_metrics
+    log.info("Plotting sample selection sweep heatmaps for metrics: %s", metrics)
+    retention_pcts = list(map(float, config.sample_retention_percentages))
+    models = config.models_to_compare
+    strategies = config.sample_selection_strategies_to_compare
+    highlight_color = config.get("highlight_color", "dodgerblue")
+
+    for split in config.sample_selection_splits_to_compare:
+        subsplit = split.split("/")[-1]
+        log.info("Creating heatmap sweep plots for split=%s", split)
+
+        for metric in metrics:
+            column = f"{split}/{metric}" if metric in config.trajectory_forecasting_metrics else metric
+
+            heatmap_data = {}
+            all_values = []
+
+            # Create all strategy heatmaps
+            for pct in retention_pcts:
+                data = np.full((len(models), len(strategies)), np.nan)
+                for i, model in enumerate(models):
+                    for j, strategy in enumerate(strategies):
+                        run_name = f"{config.sample_selection_benchmark}_{model}_{strategy}_{pct}"
+                        row = metrics_df[metrics_df["Name"] == run_name]
+                        if not row.empty and column in row.columns:
+                            val = row.iloc[0][column]
+                            data[i, j] = val
+                            all_values.append(val)
+                heatmap_data[pct] = data
+
+            # Base-only heatmap
+            base_data = np.full((len(models), 1), np.nan)
+            base_values = {}
+            for i, model in enumerate(models):
+                base_name = f"{config.sample_selection_benchmark}_{model}"
+                row = metrics_df[metrics_df["Name"] == base_name]
+                if not row.empty and column in row.columns:
+                    val = row[column].min()
+                    base_data[i, 0] = val
+                    base_values[i] = val
+                    all_values.append(val)
+                else:
+                    base_values[i] = None
+
+            if not all_values:
+                log.warning("No data found for metric=%s, split=%s", metric, split)
+                continue
+
+            vmin = np.nanmin(all_values)
+            vmax = np.nanmax(all_values)
+
+            # Figure layout
+            num_pcts = len(retention_pcts)
+            fig, axes = plt.subplots(
+                1,
+                num_pcts + 1,
+                figsize=(3.8 * num_pcts + 2.2, 0.65 * len(models) + 2.2),
+                squeeze=False,
+                gridspec_kw={"width_ratios": [1] * num_pcts + [0.45]},
+            )
+            axes = axes[0]
+
+            # Plot strategy heatmaps
+            for k, (ax, pct) in enumerate(zip(axes[:num_pcts], retention_pcts, strict=False)):
+                data = heatmap_data[pct]
+                masked_data = np.ma.masked_invalid(data)
+                im = ax.imshow(masked_data, aspect="auto", cmap=cmap, vmin=vmin, vmax=vmax)
+                im.cmap.set_bad(color="#eeeeee")
+
+                ax.set_title(f"{int(pct * 100)}%", pad=6)
+                ax.set_xticks(range(len(strategies)))
+                ax.set_xticklabels(strategies, rotation=35, ha="right", rotation_mode="anchor")
+
+                if k == 0:
+                    ax.set_yticks(range(len(models)))
+                    ax.set_yticklabels(models)
+                    ax.tick_params(axis="y", pad=6)
+                else:
+                    ax.set_yticks([])
+
+                # Highlight best per row
+                for i in range(data.shape[0]):
+                    row = data[i]
+                    if np.all(np.isnan(row)):
+                        continue
+
+                    j = np.nanargmin(row)
+                    best_val = row[j]
+                    base_val = base_values.get(i)
+                    if base_val is not None and best_val < base_val:
+                        edge_color = highlight_color
+                        marker_color = highlight_color
+                    else:
+                        edge_color = "black"
+                        marker_color = "black"
+
+                    if config.add_rectangle_annotation:
+                        ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, edgecolor=edge_color, linewidth=3))
+                    ax.plot(j, i, marker="*", ms=18, mec=marker_color, mew=1, c=marker_color, zorder=10)
+
+                # Subtle grid
+                ax.set_xticks(np.arange(-0.5, len(strategies), 1), minor=True)
+                ax.set_yticks(np.arange(-0.5, len(models), 1), minor=True)
+                ax.grid(which="minor", color="black", alpha=1, linewidth=1)
+                ax.grid(which="major", color="black", alpha=0.01, linewidth=1)
+                ax.tick_params(which="minor", bottom=False, left=False)
+
+            # Baseline heatmap
+            ax_base = axes[-1]
+            masked_base = np.ma.masked_invalid(base_data)
+            im = ax_base.imshow(masked_base, aspect="auto", cmap=cmap, vmin=vmin, vmax=vmax)
+            im.cmap.set_bad(color="#eeeeee")
+
+            ax_base.set_title("Base", pad=6)
+            ax_base.set_xticks([])
+            ax_base.set_yticks([])
+            ax_base.grid(which="minor", color="black", alpha=1, linewidth=1)
+            ax_base.grid(which="major", color="black", alpha=0.01, linewidth=1)
+            ax_base.set_xticks(np.arange(-0.5, 1, 1), minor=True)
+            ax_base.set_yticks(np.arange(-0.5, len(models), 1), minor=True)
+
+            # Colorbar
+            cax = fig.add_axes(rect=(0.92, 0.25, 0.03, 0.61))
+            cbar = fig.colorbar(im, cax=cax)
+            cbar.ax.tick_params(labelsize=12)
+
+            # Legend handles to show best strategies
+            legend = [
+                Line2D(
+                    [0],
+                    [0],
+                    marker="*",
+                    color=highlight_color,
+                    linestyle="None",
+                    markersize=10,
+                    label="Best strategy improves over base",
+                ),
+                Line2D(
+                    [0],
+                    [0],
+                    marker="*",
+                    color="black",
+                    linestyle="None",
+                    markersize=10,
+                    label="Best strategy ≥ base",
+                ),
+            ]
+
+            # Save figure
+            output_file = output_path / f"{metric}_{subsplit}.png"
+            fig.legend(handles=legend, loc="upper right", bbox_to_anchor=(0.99, 0.99), frameon=False, fontsize=9)
+            fig.suptitle(f"{metric.replace('_', ' ')} — {split}", y=1.02)
+            plt.tight_layout(rect=(0, 0, 0.9, 1))
+            fig.savefig(output_file, dpi=200, bbox_inches="tight")
+            plt.close(fig)
+
+            log.info("Saved heatmaps to %s", output_file)
 
 
 def _plot_distribution_shift_comparison(
@@ -327,6 +740,8 @@ def run_benchmark_analysis(config: DictConfig, log: Logger, output_path: Path) -
         log (Logger): Logger for logging analysis information.
         output_path (Path): Directory to save the generated plots.
     """
+    plt.style.use("seaborn-v0_8-whitegrid")
+
     output_path = output_path / config.benchmark
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -427,83 +842,6 @@ def run_benchmark_analysis(config: DictConfig, log: Logger, output_path: Path) -
     _plot_grouped_bar_chart(summary_df, metrics, output_path, key_metrics_display=key_metrics_display)
 
     print("\n✓ Analysis complete!")
-
-
-def sample_selection_analysis(config: DictConfig, log: Logger) -> None:
-    """Loads a CSV containing all model metrics downlaoded from MLflow from produces per-metric barplots with sample
-    selection comparisons.
-
-    Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        log (Logger): Logger for logging anslysis information.
-    """
-    base_path = Path(config.base_path)
-    output_path = base_path / "sample_selection_analysis"
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    # The 'all_runs.csv' file contains the metrics for all experiments and is exported from MLflow
-    metrics_df = pd.read_csv(base_path / "all_runs.csv")
-
-    # Models to analyze
-    models = ["scenetf", "wayformer", "st-student", "st-teacher", "st-teacher-u"]
-    sample_selection_strategies = ["none", "uniform-random", "token-random", "token-jaccsim", "token-jaccgum"]
-    subset = ["waymo-mini-causal-", "waymo-remove-noncausal-"]
-
-    for split, metric, model in product(config.splits_to_compare, config.metrics_to_compare, models):
-        log.info("Comparing split: %s, metric: %s, model: %s", split, metric, model)
-
-        # select columns that contain the split string
-        metric_cols = [column for column in metrics_df.columns if metric in column]
-        subset_cols = [column for column in metric_cols if any(sub in column for sub in subset)]
-        valid_cols = ["Name"] + [column for column in subset_cols if split in column]
-        if not valid_cols:
-            log.info("No columns found for split %s; skipping.", split)
-            continue
-
-        # filter rows by model and sample selection strategy, keep only the split-related columns + model_name
-        filtered_df = metrics_df[valid_cols].copy()
-        if filtered_df.empty:
-            log.info("Missing data; skipping")
-            continue
-
-        strategy_models = [model] + [
-            model + f"_{ss_strategy}" for ss_strategy in sample_selection_strategies if ss_strategy != "none"
-        ]
-        filtered_df = filtered_df[filtered_df["Name"].isin(strategy_models)]
-        # preserve the desired model order by making "Name" a categorical with the strategy_models ordering
-        filtered_df["Name"] = pd.Categorical(filtered_df["Name"], categories=strategy_models, ordered=True)
-        filtered_df = filtered_df.sort_values("Name").reset_index(drop=True)
-
-        # Melt for seaborn plotting
-        cols_to_melt = [col for col in filtered_df.columns if col != "Name"]
-        df_melted = filtered_df.melt(id_vars=["Name"], value_vars=cols_to_melt, var_name="Metric", value_name="Value")
-        if metric == "missRate":
-            df_melted = df_melted[~df_melted.Metric.str.contains(metric + "6")]
-
-        # skip if all values are NaN
-        if df_melted["Value"].isna().all():  # pyright: ignore[reportGeneralTypeIssues]
-            log.info("All values are NaN for split=%s, metric=%s, model=%s; skipping.", split, metric, model)
-            continue
-
-        # Create barplot comparing the model groups
-        plt.subplots(figsize=(10, 6))
-        sns.barplot(x="Metric", y="Value", hue="Name", data=df_melted, palette=config.palette)
-
-        min_value, max_value = df_melted.min().Value, df_melted.max().Value
-        plt.ylim(min_value - 0.1 * min_value, max(max_value + 0.1 * max_value, 1.0))
-
-        plt.title(f"Sample Selection Analysis for {model}")
-        plt.xlabel("Metrics")
-        plt.ylabel("Metrics Values")
-        plt.legend(title="Models", title_fontsize="12", fontsize="10", loc="upper left")
-
-        plt.grid(axis="y", linestyle="--", alpha=0.5)
-        plt.tight_layout()
-
-        # Show the plot
-        output_filepath = output_path / f"{split}_{model}_{metric}.png"
-        plt.savefig(output_filepath, dpi=200)
-        plt.close()
 
 
 def model_to_model_analysis(config: DictConfig, log: Logger) -> None:  # noqa: PLR0915
