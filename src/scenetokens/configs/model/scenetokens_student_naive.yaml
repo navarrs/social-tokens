@@ -3,31 +3,31 @@ defaults:
   - wayformer.yaml # Model's backbone architecture directly builds from Wayformer
 
 _target_: scenetokens.models.scenetokens_student.SceneTokensStudent
-config:
-  model_name: scenetokens-student-${model.config.tokenizer_name}-${model.config.num_classes}-${model.config.token_conditioning}
 
-  num_classes: 100
+model_name: scenetokens-student-${model.tokenizer_name}-${model.num_classes}-${model.token_conditioning}
 
-  # Scenario Classifier Configuration
-  token_conditioning: false
-  tokenizer_name: naive
-  tokenizer:
-    _target_: scenetokens.models.scene.tokenizers.naive_tokenizer.NaiveTokenizer
-    num_queries: ${model.config.num_modes}
-    hidden_size: 256
-    num_tokens: ${model.config.num_classes}
+num_classes: 100
 
-  motion_decoder:
-    _target_: scenetokens.models.scene.decoder.TrajectoryDecoder
-    num_modes: ${model.config.num_modes}
-    decoding_length: ${scenario.future_len}
-    hidden_size: 256
-    num_tokens: ${model.config.num_classes}
-    token_conditioning: ${model.config.token_conditioning}
+# Scenario Classifier Configuration
+token_conditioning: false
+tokenizer_name: naive
+tokenizer:
+  _target_: scenetokens.models.scene.tokenizers.naive_tokenizer.NaiveTokenizer
+  num_queries: ${model.num_modes}
+  hidden_size: 256
+  num_tokens: ${model.num_classes}
 
-  # Model's optimization criterion
-  criterion:
-    _target_: scenetokens.models.criterion.student.Student
-    config:
-      reduction: 'mean'
-      weight: 1.0
+motion_decoder:
+  _target_: scenetokens.models.scene.decoder.TrajectoryDecoder
+  num_modes: ${model.num_modes}
+  decoding_length: ${scenario.future_len}
+  hidden_size: 256
+  num_tokens: ${model.num_classes}
+  token_conditioning: ${model.token_conditioning}
+
+# Model's optimization criterion
+criterion:
+  _target_: scenetokens.models.criterion.student.Student
+  config:
+    reduction: 'mean'
+    weight: 1.0

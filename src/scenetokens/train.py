@@ -7,6 +7,7 @@ Example usage:
 See `docs/MODEL_TRAINING.md` and `configs/train.yaml` for more argument details.
 """
 
+import copy
 from typing import TYPE_CHECKING
 
 import hydra
@@ -62,35 +63,38 @@ def train(cfg: DictConfig) -> tuple[dict, dict]:
     trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
 
     log.info("Instantiating model <%s>", cfg.model._target_)
-    model: LightningModule = hydra.utils.instantiate(cfg.model)
+    model_config = copy.deepcopy(cfg.model)
+    model: LightningModule = hydra.utils.get_class(model_config._target_)(config=model_config)
 
     log.info("Instantiating training dataset <%s>", cfg.dataset._target_)
-    cfg.dataset.config.split = DataSplits.TRAINING
-    training_dataset: Dataset = hydra.utils.instantiate(cfg.dataset)
-    train_loader = DataLoader(
-        training_dataset,
-        batch_size=cfg.model.config.train_batch_size,
-        num_workers=cfg.model.config.load_num_workers,
+    train_dataset_config = copy.deepcopy(cfg.dataset)
+    train_dataset_config.split = DataSplits.TRAINING
+    train_dataset: Dataset = hydra.utils.get_class(train_dataset_config._target_)(config=train_dataset_config)
+    train_dataloader = DataLoader(
+        train_dataset,
+        batch_size=cfg.model.train_batch_size,
+        num_workers=cfg.model.load_num_workers,
         drop_last=False,
-        collate_fn=training_dataset.collate_fn,
+        collate_fn=train_dataset.collate_fn,  # pyright: ignore[reportAttributeAccessIssue]
     )
 
     log.info("Instantiating validation dataset <%s>", cfg.dataset._target_)
-    cfg.dataset.config.split = DataSplits.VALIDATION
-    validation_dataset: Dataset = hydra.utils.instantiate(cfg.dataset)
-    val_loader = DataLoader(
-        validation_dataset,
-        batch_size=cfg.model.config.eval_batch_size,
-        num_workers=cfg.model.config.load_num_workers,
+    val_dataset_config = copy.deepcopy(cfg.dataset)
+    val_dataset_config.split = DataSplits.VALIDATION
+    val_dataset: Dataset = hydra.utils.get_class(val_dataset_config._target_)(config=val_dataset_config)
+    val_dataloader = DataLoader(
+        val_dataset,
+        batch_size=cfg.model.eval_batch_size,
+        num_workers=cfg.model.load_num_workers,
         shuffle=False,
         drop_last=False,
-        collate_fn=validation_dataset.collate_fn,
+        collate_fn=val_dataset.collate_fn,  # pyright: ignore[reportAttributeAccessIssue]
     )
 
     object_dict = {
         "cfg": cfg,
-        "training_dataset": training_dataset,
-        "validation_dataset": validation_dataset,
+        "training_dataset": train_dataloader,
+        "validation_dataset": val_dataloader,
         "model": model,
         "callbacks": callbacks,
         "logger": logger,
@@ -108,8 +112,8 @@ def train(cfg: DictConfig) -> tuple[dict, dict]:
     log.info("Starting training!")
     trainer.fit(
         model=model,
-        train_dataloaders=train_loader,
-        val_dataloaders=val_loader,
+        train_dataloaders=train_dataloader,
+        val_dataloaders=val_dataloader,
         ckpt_path=cfg.get("ckpt_path"),
     )
     train_metrics = trainer.callback_metrics
@@ -117,15 +121,16 @@ def train(cfg: DictConfig) -> tuple[dict, dict]:
 
     if cfg.get("test"):
         log.info("Instantiating testing dataset <%s>", cfg.dataset._target_)
-        cfg.dataset.config.split = DataSplits.TESTING
-        testing_dataset: Dataset = hydra.utils.instantiate(cfg.dataset)
+        test_dataset_config = copy.deepcopy(cfg.dataset)
+        test_dataset_config.split = DataSplits.TESTING
+        test_dataset: Dataset = hydra.utils.get_class(test_dataset_config._target_)(config=test_dataset_config)
         test_loader = DataLoader(
-            testing_dataset,
-            batch_size=cfg.model.config.eval_batch_size,
-            num_workers=cfg.model.config.load_num_workers,
+            test_dataset,
+            batch_size=cfg.model.eval_batch_size,
+            num_workers=cfg.model.load_num_workers,
             shuffle=False,
             drop_last=False,
-            collate_fn=testing_dataset.collate_fn,
+            collate_fn=test_dataset.collate_fn,  # pyright: ignore[reportAttributeAccessIssue]
         )
 
         log.info("Starting testing!")

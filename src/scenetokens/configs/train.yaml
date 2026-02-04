@@ -50,7 +50,7 @@ seed: 42
 
 # experiment name
 sweep_type: ''
-exp_name: ${paths.tag}_${model.config.model_name}${sweep_type}
+exp_name: ${paths.tag}_${model.model_name}${sweep_type}
 
 # sample selection
 sample_selection_strategy: all # either of 'all', 'random_drop', 'token_random_drop', 'simple_token_jaccard_drop', 'gumbel_token_jaccard_drop'

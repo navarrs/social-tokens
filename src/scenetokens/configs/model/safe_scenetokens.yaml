@@ -3,65 +3,65 @@ defaults:
   - wayformer.yaml # Model's backbone architecture directly builds from Wayformer
 
 _target_: scenetokens.models.safe_scenetokens.SafeSceneTokens
-config:
-  model_name: safe-scenetokens
-  extra_tags: ${model.config.base_tags}_${model.config.agent_tokenizer_tags}_${model.config.criterion_tags}_${model.config.focal_tags}
 
-  num_classes: 100
-  num_queries: 38
-  num_labels: 9 # Safety Cateogories produced by the SafeShift model
+model_name: safe-scenetokens
+extra_tags: ${model.base_tags}_${model.agent_tokenizer_tags}_${model.criterion_tags}_${model.focal_tags}
 
-  scenario_embedder:
-    _target_: scenetokens.models.scene.perceiver_embedder.PerceiverEmbedder
-    num_encoder_queries: ${model.config.num_queries}
-    num_decoder_queries: ${model.config.num_queries}
-    hidden_size: 256
-    query_init_scale: 0.1
+num_classes: 100
+num_queries: 38
+num_labels: 9 # Safety Cateogories produced by the SafeShift model
 
-  # Scenario Classifier Configuration
-  tokenizer_tags: scenariotokenizer_num-tokens-${model.config.tokenizer.num_tokens}_normalize-${model.config.tokenizer.normalize}
-  token_conditioning: false
-  tokenizer_name: quantized
-  tokenizer:
-    _target_: scenetokens.models.scene.tokenizers.quantized_tokenizer.QuantizedTokenizer
-    num_queries: ${model.config.num_modes}
-    hidden_size: 256
-    num_tokens: ${model.config.num_classes}
-    reduction_factor: 2
-    normalize: false
+scenario_embedder:
+  _target_: scenetokens.models.scene.perceiver_embedder.PerceiverEmbedder
+  num_encoder_queries: ${model.num_queries}
+  num_decoder_queries: ${model.num_queries}
+  hidden_size: 256
+  query_init_scale: 0.1
 
-  # Agent tokenizer
-  use_agent_tokenizer: true
-  agent_tokenizer_tags: agenttokenizer_num-tokens-${model.config.agent_tokenizer.num_tokens}_normalize-${model.config.agent_tokenizer.normalize}_enabled-${model.config.use_agent_tokenizer}
-  agent_tokenizer:
-    _target_: scenetokens.models.scene.tokenizers.quantized_tokenizer.QuantizedTokenizer
-    num_queries: ${model.config.max_num_agents}
-    hidden_size: 256
-    num_tokens: 20
-    reduction_factor: 2
-    normalize: false
+# Scenario Classifier Configuration
+tokenizer_tags: scenariotokenizer_num-tokens-${model.tokenizer.num_tokens}_normalize-${model.tokenizer.normalize}
+token_conditioning: false
+tokenizer_name: quantized
+tokenizer:
+  _target_: scenetokens.models.scene.tokenizers.quantized_tokenizer.QuantizedTokenizer
+  num_queries: ${model.num_modes}
+  hidden_size: 256
+  num_tokens: ${model.num_classes}
+  reduction_factor: 2
+  normalize: false
 
-  motion_decoder:
-    _target_: scenetokens.models.scene.decoder.TrajectoryDecoder
-    num_modes: ${model.config.num_modes}
-    decoding_length: ${scenario.future_len}
-    hidden_size: 256
-    num_tokens: ${model.config.num_classes}
-    token_conditioning: ${model.config.token_conditioning}
+# Agent tokenizer
+use_agent_tokenizer: true
+agent_tokenizer_tags: agenttokenizer_num-tokens-${model.agent_tokenizer.num_tokens}_normalize-${model.agent_tokenizer.normalize}_enabled-${model.use_agent_tokenizer}
+agent_tokenizer:
+  _target_: scenetokens.models.scene.tokenizers.quantized_tokenizer.QuantizedTokenizer
+  num_queries: ${model.max_num_agents}
+  hidden_size: 256
+  num_tokens: 20
+  reduction_factor: 2
+  normalize: false
 
-  # Model's optimization criterion
-  criterion_tags: ind-classification-${model.config.criterion.config.individual_classification_weight}_int-classification-${model.config.criterion.config.interaction_classification_weight}_reconstruction-${model.config.criterion.config.reconstruction_weight}_tokenization-${model.config.criterion.config.tokenization_weight}
-  focal_tags: use-focal_${model.config.criterion.config.use_focal_loss}_gamma-${model.config.criterion.config.gamma}_alpha-${model.config.criterion.config.alpha}
-  criterion:
-    _target_: scenetokens.models.criterion.safe_scenetokens.SafeSceneTokens
-    config:
-      reduction: 'mean'
-      reconstruction_weight: 1.0
-      trajpred_weight: 1.0
-      tokenization_weight: 1.0
-      individual_classification_weight: 0.3 # Note: weight set to 0.3 for causal benchmark and to 0.5 for ego-safeshift
-      interaction_classification_weight: 0.3 # Note: weight set to 0.3 for causal benchmark and to 0.5 for ego-safeshift
-      classification_weight: 1.0
-      use_focal_loss: null
-      gamma: null
-      alpha: null
+motion_decoder:
+  _target_: scenetokens.models.scene.decoder.TrajectoryDecoder
+  num_modes: ${model.num_modes}
+  decoding_length: ${scenario.future_len}
+  hidden_size: 256
+  num_tokens: ${model.num_classes}
+  token_conditioning: ${model.token_conditioning}
+
+# Model's optimization criterion
+criterion_tags: ind-classification-${model.criterion.config.individual_classification_weight}_int-classification-${model.criterion.config.interaction_classification_weight}_reconstruction-${model.criterion.config.reconstruction_weight}_tokenization-${model.criterion.config.tokenization_weight}
+focal_tags: use-focal_${model.criterion.config.use_focal_loss}_gamma-${model.criterion.config.gamma}_alpha-${model.criterion.config.alpha}
+criterion:
+  _target_: scenetokens.models.criterion.safe_scenetokens.SafeSceneTokens
+  config:
+    reduction: 'mean'
+    reconstruction_weight: 1.0
+    trajpred_weight: 1.0
+    tokenization_weight: 1.0
+    individual_classification_weight: 0.3 # Note: weight set to 0.3 for causal benchmark and to 0.5 for ego-safeshift
+    interaction_classification_weight: 0.3 # Note: weight set to 0.3 for causal benchmark and to 0.5 for ego-safeshift
+    classification_weight: 1.0
+    use_focal_loss: null
+    gamma: null
+    alpha: null

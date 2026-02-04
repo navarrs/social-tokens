@@ -1,131 +1,130 @@
 _target_: scenetokens.datasets.base_dataset.BaseDataset
-config:
-  load_data: true
-  split: null
-  num_data_to_consider: null
+load_data: true
+split: null
+num_data_to_consider: null
 
-  past_len: ${scenario.past_len}
-  future_len: ${scenario.future_len}
+past_len: ${scenario.past_len}
+future_len: ${scenario.future_len}
 
-  train_data_path: ${paths.train_data_path}
-  train_data_tag: ${paths.train_data_tag}
-  val_data_path: ${paths.val_data_path}
-  val_data_tag: ${paths.val_data_tag}
-  test_data_path: ${paths.test_data_path}
-  test_data_tag: ${paths.test_data_tag}
+train_data_path: ${paths.train_data_path}
+train_data_tag: ${paths.train_data_tag}
+val_data_path: ${paths.val_data_path}
+val_data_tag: ${paths.val_data_tag}
+test_data_path: ${paths.test_data_path}
+test_data_tag: ${paths.test_data_tag}
 
-  sample_selection_strategy: ${sample_selection_strategy}
-  sample_selection_filepath: ${sample_selection_filepath}
+sample_selection_strategy: ${sample_selection_strategy}
+sample_selection_filepath: ${sample_selection_filepath}
 
-  temp_path: ${paths.temp_path}
-  cache_path: ${paths.data_cache_path}
-  use_cache: false
-  overwrite_cache: ${overwrite_cache}
-  store_data_in_memory: false
+temp_path: ${paths.temp_path}
+cache_path: ${paths.data_cache_path}
+use_cache: false
+overwrite_cache: ${overwrite_cache}
+store_data_in_memory: false
 
-  masked_attributes: ['z_axis', 'size']
-  object_type: ['TYPE_VEHICLE', 'TYPE_PEDESTRIAN', 'TYPE_CYCLIST']
-  line_type: [ 'lane','stop_sign','road_edge','road_line','crosswalk','speed_bump' ]
+masked_attributes: ['z_axis', 'size']
+object_type: ['TYPE_VEHICLE', 'TYPE_PEDESTRIAN', 'TYPE_CYCLIST']
+line_type: [ 'lane','stop_sign','road_edge','road_line','crosswalk','speed_bump' ]
 
-  only_train_on_ego: true
-  trajectory_sample_interval: 1
-  max_num_agents: ${model.config.max_num_agents}
-  max_num_roads: ${model.config.max_num_roads}
-  max_points_per_lane: ${model.config.max_points_per_lane}
-  map_range: ${model.config.map_range}
-  total_map_types: 20 # NOTE: not sure where the value is coming from
-  center_offset_of_map: [30.0, 0.0]
+only_train_on_ego: true
+trajectory_sample_interval: 1
+max_num_agents: ${model.max_num_agents}
+max_num_roads: ${model.max_num_roads}
+max_points_per_lane: ${model.max_points_per_lane}
+map_range: ${model.map_range}
+total_map_types: 20 # NOTE: not sure where the value is coming from
+center_offset_of_map: [30.0, 0.0]
 
-  causal_labels_path: ${paths.causal_labels_path}
+causal_labels_path: ${paths.causal_labels_path}
 
-  # SafeShift configuration
-  autolabel_agents: ${autolabel_agents}
+# SafeShift configuration
+autolabel_agents: ${autolabel_agents}
 
-  conflict_points:
-    intersection_threshold: 0.1 # meters
-    resample_factor: 1
-    return_static_conflict_points: false
-    return_dynamic_conflict_points: false
-    return_lane_conflict_points: false
+conflict_points:
+  intersection_threshold: 0.1 # meters
+  resample_factor: 1
+  return_static_conflict_points: false
+  return_dynamic_conflict_points: false
+  return_lane_conflict_points: false
 
-  closest_lanes:
-    num_lanes: 16
-    threshold_distance: 10 # meters
-    subsample_factor: 2
+closest_lanes:
+  num_lanes: 16
+  threshold_distance: 10 # meters
+  subsample_factor: 2
 
-  # The scenario characterization configuration below follows the parameters used to get the categorical values for the
-  # scores and features.
-  scenario_characterization:
-    # _target_: characterization.features.safeshift_features.SafeShiftFeatures
-    feature_type: categorical
+# The scenario characterization configuration below follows the parameters used to get the categorical values for the
+# scores and features.
+scenario_characterization:
+  # _target_: characterization.features.safeshift_features.SafeShiftFeatures
+  feature_type: categorical
 
-    # Individual feature categorization files
-    vehicle_categorization_file: ./meta/type_vehicle_feature_percentiles.json
-    cyclist_categorization_file: ./meta/type_cyclist_feature_percentiles.json
-    pedestrian_categorization_file: ./meta/type_pedestrian_feature_percentiles.json
+  # Individual feature categorization files
+  vehicle_categorization_file: ./meta/type_vehicle_feature_percentiles.json
+  cyclist_categorization_file: ./meta/type_cyclist_feature_percentiles.json
+  pedestrian_categorization_file: ./meta/type_pedestrian_feature_percentiles.json
 
-    # Interaction feature categorization files
-    vehicle_vehicle_categorization_file: ./meta/type_vehicle_vehicle_feature_percentiles.json
-    vehicle_pedestrian_categorization_file: ./meta/type_vehicle_pedestrian_feature_percentiles.json
-    vehicle_cyclist_categorization_file: ./meta/type_vehicle_cyclist_feature_percentiles.json
-    pedestrian_pedestrian_categorization_file: ./meta/type_pedestrian_pedestrian_feature_percentiles.json
-    pedestrian_cyclist_categorization_file: ./meta/type_pedestrian_cyclist_feature_percentiles.json
-    cyclist_cyclist_categorization_file: ./meta/type_cyclist_cyclist_feature_percentiles.json
+  # Interaction feature categorization files
+  vehicle_vehicle_categorization_file: ./meta/type_vehicle_vehicle_feature_percentiles.json
+  vehicle_pedestrian_categorization_file: ./meta/type_vehicle_pedestrian_feature_percentiles.json
+  vehicle_cyclist_categorization_file: ./meta/type_vehicle_cyclist_feature_percentiles.json
+  pedestrian_pedestrian_categorization_file: ./meta/type_pedestrian_pedestrian_feature_percentiles.json
+  pedestrian_cyclist_categorization_file: ./meta/type_pedestrian_cyclist_feature_percentiles.json
+  cyclist_cyclist_categorization_file: ./meta/type_cyclist_cyclist_feature_percentiles.json
 
-    # Scoring parameters
-    vru_priority_weight: 2.0 # Weight for VRU priority in scoring
-    categorize_scores: true # Whether to categorize scores
-    score_weighting_method: "distance_to_ego_agent" # Method for weighting scores ('uniform', 'wrt_ego', 'wrt_relevant')
-    reduce_distance_penalty: true # Whether to reduce distance penalty
-    aggregated_score_weight: 0.5 # Weight for aggregated score in final score computation
-    individual_score_function: simple
-    individual_categorization_file: ./meta/gt_critical_categorical_individual.json
-    interaction_score_function: simple
-    interaction_categorization_file: ./meta/gt_critical_categorical_interaction.json
+  # Scoring parameters
+  vru_priority_weight: 2.0 # Weight for VRU priority in scoring
+  categorize_scores: true # Whether to categorize scores
+  score_weighting_method: "distance_to_ego_agent" # Method for weighting scores ('uniform', 'wrt_ego', 'wrt_relevant')
+  reduce_distance_penalty: true # Whether to reduce distance penalty
+  aggregated_score_weight: 0.5 # Weight for aggregated score in final score computation
+  individual_score_function: simple
+  individual_categorization_file: ./meta/gt_critical_categorical_individual.json
+  interaction_score_function: simple
+  interaction_categorization_file: ./meta/gt_critical_categorical_interaction.json
 
-    score_clip:
-      min: 0.0
-      max: 16.0
+  score_clip:
+    min: 0.0
+    max: 16.0
 
-    # NOTE: if weights are not specified here, will use default values from FeatureWeights in schemas/detections.py.
-    weights:
-      # Individual features
-      speed: 1.0
-      speed_limit_diff: 1.0
-      acceleration: 1.0
-      deceleration: 1.0
-      jerk: 1.0
-      waiting_period: 1.0
+  # NOTE: if weights are not specified here, will use default values from FeatureWeights in schemas/detections.py.
+  weights:
+    # Individual features
+    speed: 1.0
+    speed_limit_diff: 1.0
+    acceleration: 1.0
+    deceleration: 1.0
+    jerk: 1.0
+    waiting_period: 1.0
 
-      # Individual features from Unitraj
-      trajectory_type: 0.1
-      kalman_difficulty: 1.0
+    # Individual features from Unitraj
+    trajectory_type: 0.1
+    kalman_difficulty: 1.0
 
-      # Interaction features
-      collision: 4.0
-      mttcp: 3.0
-      thw: 1.0
-      ttc: 2.0
-      drac: 2.0
+    # Interaction features
+    collision: 4.0
+    mttcp: 3.0
+    thw: 1.0
+    ttc: 2.0
+    drac: 2.0
 
-    # NOTE: if detections are not specified here, the code uses the default values from FeatureDetections which is
-    # defined in 'schemas/detections.py'. The current thresholds have been adjusted from FeatureDetections based on
-    # feature distribution analysis performed on a subset of the WOMD data, using 'run_feature_analysis.py'. We select
-    # the ceil of maximum value accross vehicles, pedestrians and cyclists at the 95th percentile as the detection
-    # threshold.
-    # Detections here are in percentile categories
-    # 1: 1, 10: 2, 75: 3, 90: 4, 95: 5, 99: 6, 100: 7
-    detections:
-      speed: 8
-      speed_limit_diff: 8
-      acceleration: 8
-      deceleration: 8
-      jerk: 8
-      waiting_period: 8
-      kalman_difficulty: 8
+  # NOTE: if detections are not specified here, the code uses the default values from FeatureDetections which is
+  # defined in 'schemas/detections.py'. The current thresholds have been adjusted from FeatureDetections based on
+  # feature distribution analysis performed on a subset of the WOMD data, using 'run_feature_analysis.py'. We select
+  # the ceil of maximum value accross vehicles, pedestrians and cyclists at the 95th percentile as the detection
+  # threshold.
+  # Detections here are in percentile categories
+  # 1: 1, 10: 2, 75: 3, 90: 4, 95: 5, 99: 6, 100: 7
+  detections:
+    speed: 8
+    speed_limit_diff: 8
+    acceleration: 8
+    deceleration: 8
+    jerk: 8
+    waiting_period: 8
+    kalman_difficulty: 8
 
-      collision: 1
-      mttcp: 8
-      thw: 8
-      ttc: 8
-      drac: 8
+    collision: 1
+    mttcp: 8
+    thw: 8
+    ttc: 8
+    drac: 8

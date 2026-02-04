@@ -3,71 +3,71 @@ defaults:
   - wayformer.yaml # Model's backbone architecture directly builds from Wayformer
 
 _target_: scenetokens.models.scenetokens_teacher.SceneTokensTeacher
-config:
-  model_name: scenetokens-teacher
-  extra_tags: ${model.config.base_tags}_${model.config.agent_tokenizer_tags}_${model.config.criterion_tags}_${model.config.focal_tags}
-  # extra_tags: ${model.config.base_tags}_${model.config.tokenizer_tags}_${model.config.motion_decoder_tags}_${model.config.criterion_tags}
-  # extra_tags: lr-${model.config.optimizer.lr}_batch-size-${model.config.train_batch_size}_scenario-classes-${model.config.num_classes}_agent-classes-${model.config.agent_tokenizer.num_tokens}_focal-loss-${model.config.criterion.config.use_focal_loss}_class-weight-${model.config.criterion.config.classification_weight}
 
-  num_classes: 100
+model_name: scenetokens-teacher
+extra_tags: ${model.base_tags}_${model.agent_tokenizer_tags}_${model.criterion_tags}_${model.focal_tags}
+# extra_tags: ${model.base_tags}_${model.tokenizer_tags}_${model.motion_decoder_tags}_${model.criterion_tags}
+# extra_tags: lr-${model.optimizer.lr}_batch-size-${model.train_batch_size}_scenario-classes-${model.num_classes}_agent-classes-${model.agent_tokenizer.num_tokens}_focal-loss-${model.criterion.config.use_focal_loss}_class-weight-${model.criterion.config.classification_weight}
 
-  scenario_embedder_pre:
-    _target_: scenetokens.models.scene.perceiver_embedder.PerceiverEmbedder
-    num_encoder_queries: ${model.config.max_num_agents}
-    num_decoder_queries: ${model.config.max_num_agents}
-    hidden_size: 256
-    query_init_scale: 0.1
+num_classes: 100
 
-  scenario_embedder_post:
-    _target_: scenetokens.models.scene.perceiver_embedder.PerceiverEmbedder
-    num_encoder_queries: ${model.config.num_modes}
-    num_decoder_queries: ${model.config.num_modes}
-    hidden_size: 256
-    query_init_scale: 0.1
+scenario_embedder_pre:
+  _target_: scenetokens.models.scene.perceiver_embedder.PerceiverEmbedder
+  num_encoder_queries: ${model.max_num_agents}
+  num_decoder_queries: ${model.max_num_agents}
+  hidden_size: 256
+  query_init_scale: 0.1
 
-  # Scenario Classifier Configuration
-  tokenizer_tags: scenariotokenizer_num-tokens-${model.config.tokenizer.num_tokens}_normalize-${model.config.tokenizer.normalize}
-  token_conditioning: false
-  tokenizer_name: quantized
-  tokenizer:
-    _target_: scenetokens.models.scene.tokenizers.quantized_tokenizer.QuantizedTokenizer
-    num_queries: ${model.config.num_modes}
-    hidden_size: 256
-    num_tokens: ${model.config.num_classes}
-    reduction_factor: 2
-    normalize: false
+scenario_embedder_post:
+  _target_: scenetokens.models.scene.perceiver_embedder.PerceiverEmbedder
+  num_encoder_queries: ${model.num_modes}
+  num_decoder_queries: ${model.num_modes}
+  hidden_size: 256
+  query_init_scale: 0.1
 
-  # Agent tokenizer
-  agent_tokenizer_tags: agenttokenizer_num-tokens-${model.config.agent_tokenizer.num_tokens}_normalize-${model.config.agent_tokenizer.normalize}
-  agent_tokenizer:
-    _target_: scenetokens.models.scene.tokenizers.quantized_tokenizer.QuantizedTokenizer
-    num_queries: ${model.config.max_num_agents}
-    hidden_size: 256
-    num_tokens: 20
-    reduction_factor: 2
-    normalize: false
+# Scenario Classifier Configuration
+tokenizer_tags: scenariotokenizer_num-tokens-${model.tokenizer.num_tokens}_normalize-${model.tokenizer.normalize}
+token_conditioning: false
+tokenizer_name: quantized
+tokenizer:
+  _target_: scenetokens.models.scene.tokenizers.quantized_tokenizer.QuantizedTokenizer
+  num_queries: ${model.num_modes}
+  hidden_size: 256
+  num_tokens: ${model.num_classes}
+  reduction_factor: 2
+  normalize: false
 
-  motion_decoder:
-    _target_: scenetokens.models.scene.decoder.TrajectoryDecoder
-    num_modes: ${model.config.num_modes}
-    decoding_length: ${scenario.future_len}
-    hidden_size: 256
-    num_tokens: ${model.config.num_classes}
-    token_conditioning: ${model.config.token_conditioning}
+# Agent tokenizer
+agent_tokenizer_tags: agenttokenizer_num-tokens-${model.agent_tokenizer.num_tokens}_normalize-${model.agent_tokenizer.normalize}
+agent_tokenizer:
+  _target_: scenetokens.models.scene.tokenizers.quantized_tokenizer.QuantizedTokenizer
+  num_queries: ${model.max_num_agents}
+  hidden_size: 256
+  num_tokens: 20
+  reduction_factor: 2
+  normalize: false
 
-  # Model's optimization criterion
-  criterion_tags: classification-${model.config.criterion.config.classification_weight}_reconstruction-${model.config.criterion.config.reconstruction_weight}_tokenization-${model.config.criterion.config.tokenization_weight}
-  focal_tags: use-focal_${model.config.criterion.config.use_focal_loss}_gamma-${model.config.criterion.config.gamma}_alpha-${model.config.criterion.config.alpha}
-  criterion:
-    _target_: scenetokens.models.criterion.teacher.Teacher
-    config:
-      reduction: 'mean'
-      reconstruction_weight: 1.0
-      trajpred_weight: 1.0
-      tokenization_weight: 1.0
-      classification_weight: 1.0
-      use_focal_loss: false
-      gamma: 2.0
-      alpha:
-        - 0.5
-        - 1.0
+motion_decoder:
+  _target_: scenetokens.models.scene.decoder.TrajectoryDecoder
+  num_modes: ${model.num_modes}
+  decoding_length: ${scenario.future_len}
+  hidden_size: 256
+  num_tokens: ${model.num_classes}
+  token_conditioning: ${model.token_conditioning}
+
+# Model's optimization criterion
+criterion_tags: classification-${model.criterion.config.classification_weight}_reconstruction-${model.criterion.config.reconstruction_weight}_tokenization-${model.criterion.config.tokenization_weight}
+focal_tags: use-focal_${model.criterion.config.use_focal_loss}_gamma-${model.criterion.config.gamma}_alpha-${model.criterion.config.alpha}
+criterion:
+  _target_: scenetokens.models.criterion.teacher.Teacher
+  config:
+    reduction: 'mean'
+    reconstruction_weight: 1.0
+    trajpred_weight: 1.0
+    tokenization_weight: 1.0
+    classification_weight: 1.0
+    use_focal_loss: false
+    gamma: 2.0
+    alpha:
+      - 0.5
+      - 1.0

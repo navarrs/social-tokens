@@ -10,6 +10,7 @@ Example usage:
 See `docs/ANALYSIS.md` and `configs/sample_selection.yaml` for more argument details.
 """
 
+import copy
 from itertools import product
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -65,15 +66,16 @@ def evaluate_and_cache_dataset(cfg: DictConfig) -> tuple[dict, dict]:
         utils.log_hyperparameters(object_dict)
 
     log.info("Instantiating training dataset <%s>", cfg.dataset._target_)
-    cfg.dataset.config.split = DataSplits.TRAINING
-    training_set: Dataset = hydra.utils.instantiate(cfg.dataset)
+    train_dataset_config = copy.deepcopy(cfg.dataset)
+    train_dataset_config.split = DataSplits.TRAINING
+    train_dataset: Dataset = hydra.utils.get_class(train_dataset_config._target_)(config=train_dataset_config)
     test_loader = DataLoader(
-        training_set,
+        train_dataset,
         batch_size=cfg.model.config.eval_batch_size,
         num_workers=cfg.model.config.load_num_workers,
         shuffle=False,
         drop_last=False,
-        collate_fn=training_set.collate_fn,
+        collate_fn=train_dataset.collate_fn,  # pyright: ignore[reportAttributeAccessIssue]
     )
     log.info("Starting test process to cache training set.")
     trainer.test(model=model, dataloaders=test_loader, ckpt_path=cfg.ckpt_path)

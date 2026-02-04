@@ -17,5 +17,5 @@ tags: ["dev"]
 
 # passing checkpoint path is necessary for evaluation
 ckpt_name: null
-exp_name: ${paths.tag}_${model.config.model_name}${sweep_type}
+exp_name: ${paths.tag}_${model.model_name}${sweep_type}
 ckpt_path: ${paths.ckpt_path}/${exp_name}/${ckpt_name}.ckpt

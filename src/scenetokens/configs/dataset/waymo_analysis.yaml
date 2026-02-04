@@ -2,5 +2,4 @@ defaults:
   - default.yaml
 
 _target_: scenetokens.datasets.waymo_dataset.WaymoDataset
-config:
-  load_data: false
+load_data: false

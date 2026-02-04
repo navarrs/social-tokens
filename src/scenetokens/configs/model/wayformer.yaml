@@ -2,50 +2,50 @@ defaults:
   - default.yaml
 
 _target_: scenetokens.models.wayformer.Wayformer
-config:
-  model_name: wayformer
-  # Add model tags
-  base_tags: lr-${model.config.optimizer.lr}_batch-size-${model.config.train_batch_size}
-  extra_tags: ${model.config.base_tags}_${model.config.scenario_embedder_tags}
+model_name: wayformer
 
-  # Scenario Embedder
-  scenario_embedder_tags: num-enc-queries-${model.config.scenario_embedder.num_encoder_queries}_num-dec-queries-${model.config.scenario_embedder.num_decoder_queries}
-  scenario_embedder:
-    _target_: scenetokens.models.scene.perceiver_embedder.PerceiverEmbedder
-    num_encoder_queries: 6
-    num_decoder_queries: 6
-    hidden_size: 256
-    query_init_scale: 0.1
+# Add model tags
+base_tags: lr-${model.optimizer.lr}_batch-size-${model.train_batch_size}
+extra_tags: ${model.base_tags}_${model.scenario_embedder_tags}
 
-  # Motion Decoder
-  motion_decoder:
-    _target_: scenetokens.models.scene.decoder.TrajectoryDecoder
-    num_modes: ${model.config.num_modes}
-    decoding_length: ${scenario.future_len}
-    hidden_size: 256
+# Scenario Embedder
+scenario_embedder_tags: num-enc-queries-${model.scenario_embedder.num_encoder_queries}_num-dec-queries-${model.scenario_embedder.num_decoder_queries}
+scenario_embedder:
+  _target_: scenetokens.models.scene.perceiver_embedder.PerceiverEmbedder
+  num_encoder_queries: 6
+  num_decoder_queries: 6
+  hidden_size: 256
+  query_init_scale: 0.1
 
-  # Model's optimization criterion
-  criterion:
-    _target_: scenetokens.models.criterion.trajpred.TrajectoryPrediction
-    config:
-      rho_limit: 0.5
+# Motion Decoder
+motion_decoder:
+  _target_: scenetokens.models.scene.decoder.TrajectoryDecoder
+  num_modes: ${model.num_modes}
+  decoding_length: ${scenario.future_len}
+  hidden_size: 256
 
-  # Optimizer
-  optimizer:
-    _target_: torch.optim.AdamW
-    _partial_: true
-    lr: 0.0001
-    weight_decay: 0.01
-    betas: [0.9, 0.95]
-    eps: 0.0001
+# Model's optimization criterion
+criterion:
+  _target_: scenetokens.models.criterion.trajpred.TrajectoryPrediction
+  config:
+    rho_limit: 0.5
 
-  # Scheduler
-  scheduler:
-    _target_: torch.optim.lr_scheduler.OneCycleLR
-    _partial_: true
-    max_lr: 0.0002
-    steps_per_epoch: 1
-    epochs: ${model.config.max_epochs}
-    pct_start: 0.02
-    div_factor: 100.0
-    final_div_factor: 10
+# Optimizer
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.0001
+  weight_decay: 0.01
+  betas: [0.9, 0.95]
+  eps: 0.0001
+
+# Scheduler
+scheduler:
+  _target_: torch.optim.lr_scheduler.OneCycleLR
+  _partial_: true
+  max_lr: 0.0002
+  steps_per_epoch: 1
+  epochs: ${model.max_epochs}
+  pct_start: 0.02
+  div_factor: 100.0
+  final_div_factor: 10

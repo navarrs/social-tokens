@@ -1,32 +1,31 @@
 _target_: scenetokens.models.base_model.BaseModel
-config:
-  eval: null
-  model_name: null
-  extra_tags: null
-  sample_selection: false
+eval: null
+model_name: null
+extra_tags: null
+sample_selection: false
 
-  # Training parameters
-  max_epochs: 150
-  train_batch_size: 64
-  eval_batch_size: 64
-  load_num_workers: 10 # number of workers for loading data
-  grad_clip_norm: 5
+# Training parameters
+max_epochs: 150
+train_batch_size: 64
+eval_batch_size: 64
+load_num_workers: 10 # number of workers for loading data
+grad_clip_norm: 5
 
-  # General Model Parameters, shared across all architectures
-  max_num_agents: 32
-  map_range: 100
-  max_num_roads: 384
-  max_points_per_lane: 30 # will be overwritten if manually_split_lane is True
-  map_input_size: 29
-  agents_input_size: 29
-  num_modes: 6
-  hidden_size: 256
+# General Model Parameters, shared across all architectures
+max_num_agents: 32
+map_range: 100
+max_num_roads: 384
+max_points_per_lane: 30 # will be overwritten if manually_split_lane is True
+map_input_size: 29
+agents_input_size: 29
+num_modes: 6
+hidden_size: 256
 
-  past_len: ${scenario.past_len}
-  future_len: ${scenario.future_len}
+past_len: ${scenario.past_len}
+future_len: ${scenario.future_len}
 
-  monitor: "losses/val"
+monitor: "losses/val"
 
-  cache_batch: False
-  cache_every_batch_idx: 100
-  batch_cache_path: ${paths.batch_cache_path}
+cache_batch: False
+cache_every_batch_idx: 100
+batch_cache_path: ${paths.batch_cache_path}

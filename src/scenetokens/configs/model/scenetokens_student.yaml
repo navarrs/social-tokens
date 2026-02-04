@@ -3,40 +3,40 @@ defaults:
   - wayformer.yaml # Model's backbone architecture directly builds from Wayformer
 
 _target_: scenetokens.models.scenetokens_student.SceneTokensStudent
-config:
-  model_name: scenetokens-student
-  extra_tags: ${model.config.base_tags}_${model.config.tokenizer_tags}_${model.config.motion_decoder_tags}_${model.config.criterion_tags}
 
-  num_classes: 100
+model_name: scenetokens-student
+extra_tags: ${model.base_tags}_${model.tokenizer_tags}_${model.motion_decoder_tags}_${model.criterion_tags}
 
-  # Scenario Classifier Configuration
-  use_reconstructed: false
-  token_conditioning: false
-  tokenizer_name: quantized
-  tokenizer_tags: num-tokens-${model.config.tokenizer.num_tokens}_normalize-${model.config.tokenizer.normalize}
-  tokenizer:
-    _target_: scenetokens.models.scene.tokenizers.quantized_tokenizer.QuantizedTokenizer
-    num_queries: ${model.config.num_modes}
-    hidden_size: 256
-    num_tokens: ${model.config.num_classes}
-    reduction_factor: 2
-    normalize: false
+num_classes: 100
 
-  motion_decoder_tags: num-tokens-${model.config.tokenizer.num_tokens}_reconstructed-conditioning-${model.config.use_reconstructed}_token-conditioning-${model.config.token_conditioning}
-  motion_decoder:
-    _target_: scenetokens.models.scene.decoder.TrajectoryDecoder
-    num_modes: ${model.config.num_modes}
-    decoding_length: ${scenario.future_len}
-    hidden_size: 256
-    num_tokens: ${model.config.num_classes}
-    token_conditioning: ${model.config.token_conditioning}
+# Scenario Classifier Configuration
+use_reconstructed: false
+token_conditioning: false
+tokenizer_name: quantized
+tokenizer_tags: num-tokens-${model.tokenizer.num_tokens}_normalize-${model.tokenizer.normalize}
+tokenizer:
+  _target_: scenetokens.models.scene.tokenizers.quantized_tokenizer.QuantizedTokenizer
+  num_queries: ${model.num_modes}
+  hidden_size: 256
+  num_tokens: ${model.num_classes}
+  reduction_factor: 2
+  normalize: false
 
-  # Model's optimization criterion
-  criterion_tags: reconstruction-${model.config.criterion.config.reconstruction_weight}_trajpred-${model.config.criterion.config.trajpred_weight}_tokenization-${model.config.criterion.config.tokenization_weight}
-  criterion:
-    _target_: scenetokens.models.criterion.student.Student
-    config:
-      reduction: 'mean'
-      reconstruction_weight: 1.0
-      trajpred_weight: 1.0
-      tokenization_weight: 1.0
+motion_decoder_tags: num-tokens-${model.tokenizer.num_tokens}_reconstructed-conditioning-${model.use_reconstructed}_token-conditioning-${model.token_conditioning}
+motion_decoder:
+  _target_: scenetokens.models.scene.decoder.TrajectoryDecoder
+  num_modes: ${model.num_modes}
+  decoding_length: ${scenario.future_len}
+  hidden_size: 256
+  num_tokens: ${model.num_classes}
+  token_conditioning: ${model.token_conditioning}
+
+# Model's optimization criterion
+criterion_tags: reconstruction-${model.criterion.config.reconstruction_weight}_trajpred-${model.criterion.config.trajpred_weight}_tokenization-${model.criterion.config.tokenization_weight}
+criterion:
+  _target_: scenetokens.models.criterion.student.Student
+  config:
+    reduction: 'mean'
+    reconstruction_weight: 1.0
+    trajpred_weight: 1.0
+    tokenization_weight: 1.0
