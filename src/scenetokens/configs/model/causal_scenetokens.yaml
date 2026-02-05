@@ -2,9 +2,9 @@ defaults:
   - default.yaml
   - wayformer.yaml # Model's backbone architecture directly builds from Wayformer
 
-_target_: scenetokens.models.scenetokens_teacher_unmasked.SceneTokensTeacherUnmasked
+_target_: scenetokens.models.causal_scenetokens.CausalSceneTokens
 config:
-  model_name: scenetokens-teacher-unmasked
+  model_name: causal-scenetokens
   extra_tags: ${model.config.base_tags}_${model.config.agent_tokenizer_tags}_${model.config.criterion_tags}_${model.config.focal_tags}
 
   num_classes: 100
@@ -52,7 +52,7 @@ config:
   criterion_tags: classification-${model.config.criterion.config.classification_weight}_reconstruction-${model.config.criterion.config.reconstruction_weight}_tokenization-${model.config.criterion.config.tokenization_weight}
   focal_tags: use-focal_${model.config.criterion.config.use_focal_loss}_gamma-${model.config.criterion.config.gamma}_alpha-${model.config.criterion.config.alpha}
   criterion:
-    _target_: scenetokens.models.criterion.teacher.Teacher
+    _target_: scenetokens.models.criterion.causal_st.CausalST
     config:
       reduction: 'mean'
       reconstruction_weight: 1.0

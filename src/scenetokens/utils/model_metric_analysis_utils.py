@@ -19,7 +19,7 @@ MODEL_NAME_MAP = {
     "wayformer": "Wayformer",
     "scenetransformer": "SceneTransformer",
     "scenetokens-student": "ST",
-    "scenetokens-teacher-unmasked": "Causal-ST",
+    "causal-scenetokens": "Causal-ST",
     "safe-scenetokens": "Safe-ST",
 }
 

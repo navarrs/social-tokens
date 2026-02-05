@@ -27,8 +27,8 @@ class SafeSceneTokens(Criterion):
         self.interaction_safety_loss = SafetyClassification(config)
 
     def forward(self, model_output: ModelOutput) -> torch.Tensor:
-        """Computes the Quantized Teacher loss which combines the quantizatio loss from scenario and agent tokenization,
-        the trajectory prediction loss and the mask classifier loss.
+        """Computes the SafeSceneTokens loss which combines the quantization loss from scenario and agent tokenization,
+        the trajectory prediction loss and the agent's individual and interaction safety classifier loss.
 
         Args:
             model_output (ModelOutput): pydantic validator for model outputs.

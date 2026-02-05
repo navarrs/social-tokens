@@ -50,7 +50,7 @@ class Reconstruction(Criterion):
         if model_output.tokenization_output is not None:
             scenario_tokenization_loss = self.compute_tokenization_reconstruction(model_output.tokenization_output)
 
-        # If training with the teacher, include the causal tokenization reconstruction.
+        # If training with the 'informed' tokenizers, include the causal tokenization reconstruction.
         causal_tokenization_loss = None
         if model_output.causal_tokenization_output is not None:
             causal_tokenization_loss = self.compute_tokenization_reconstruction(model_output.causal_tokenization_output)
