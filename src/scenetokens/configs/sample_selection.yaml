@@ -48,5 +48,6 @@ paths:
   # Safe-ST Model (ckpt: epoch_139.ckpt)
   # experiment_dir: causal-benchmark-labeled_safe-scenetokens_safe-weight_2026-01-13_18-45-53
 
-  # Teacher Model
-  experiment_dir: causal-benchmark-labeled_scenetokens-teacher-unmasked_2026-01-29_19-27-36
+  # Causal-ST Model, run as: (ckpt: epoch_095.ckpt)
+  # uv run -m scenetokens.sample_selection model=causal_scenetokens ckpt_path=/data/driving/waymo/causal-benchmark-labeled/model_cache/causal-benchmark-labeled_causal-scenetokens_2026-02-05_15-05-18/ckpts/causal-benchmark-labeled_causal-scenetokens/epoch_095.ckpt
+  experiment_dir: causal-benchmark-labeled_causal-scenetokens_2026-02-05_15-05-18

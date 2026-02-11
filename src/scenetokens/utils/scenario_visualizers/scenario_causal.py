@@ -120,7 +120,7 @@ class ScenarioCausalVisualizer(BaseVisualizer):
         # Get the agents normalized scores
         # agent_scores = np.ones(agent_data.num_agents, float)
         # agent_scores = BaseVisualizer.get_normalized_agent_scores(agent_scores, ego_index)
-        agent_scores = np.zeros(agent_data.num_agents, float)
+        agent_scores = 0.1 * np.ones(agent_data.num_agents, float)
 
         # Mark causal agents as 'TYPE_RELEVANT'
         modeled_agent_ids = model_output.agent_ids.value.detach().cpu().numpy()
@@ -132,7 +132,7 @@ class ScenarioCausalVisualizer(BaseVisualizer):
                 relevant_indeces = np.where(causal > 0.0)[0]
                 relevant_agent_ids = modeled_agent_ids[relevant_indeces]
                 idxs = np.isin(agent_ids, relevant_agent_ids)
-                agent_types[idxs] = "TYPE_RELEVANT"
+                # agent_types[idxs] = "TYPE_RELEVANT"
                 agent_scores[idxs] = 1.0
             case CausalOutputType.PREDICTION:
                 # TODO: make this parallized
