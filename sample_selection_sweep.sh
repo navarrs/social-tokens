@@ -10,7 +10,7 @@ Usage: $0 [options]
 
 Options:
   -m <models>       Model(s), comma-separated
-                    (default: wayformer, scenetransformer, scenetokens_student, scenetokens_teacher_unmasked, safe_scenetokens)
+                    (default: wayformer, scenetransformer, scenetokens_student, causal_scenetokens, safe_scenetokens)
   -d <devices>      Devices (e.g. 0 or 0,1)
                     (default: 0)
   -s <strategies>   Strategy/strategies, comma-separated
@@ -37,7 +37,7 @@ Examples:
   $0 -p 0.5,0.7,0.9
 
   # Dry run to preview commands
-  $0 -m scenetokens_student -n
+  $0 -m scenetokens_student  -n
 EOF
     exit 1
 }
@@ -47,9 +47,9 @@ EOF
 ############################
 DEFAULT_MODELS=(
     wayformer
-    safe_scenetokens
     scenetokens_student
-    scenetokens_teacher_unmasked
+    causal_scenetokens
+    safe_scenetokens
     scenetransformer
 )
 DEFAULT_DEVICES="0"

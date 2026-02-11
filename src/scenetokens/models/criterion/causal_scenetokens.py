@@ -1,3 +1,5 @@
+"""Code for the CausalSceneTokens loss function."""
+
 import torch
 from omegaconf import DictConfig
 
@@ -11,7 +13,11 @@ from scenetokens.models.criterion import (
 from scenetokens.schemas.output_schemas import ModelOutput
 
 
-class Teacher(Criterion):
+class CausalSceneTokens(Criterion):
+    """Criterion for CausalSceneTokens which combines the quantization loss from scenario and agent tokenization, the
+    trajectory prediction loss and the causal classifier loss.
+    """
+
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config=config)
 
@@ -26,8 +32,8 @@ class Teacher(Criterion):
         )
 
     def forward(self, model_output: ModelOutput) -> torch.Tensor:
-        """Computes the Quantized Teacher loss which combines the quantizatio loss from scenario and agent tokenization,
-        the trajectory prediction loss and the mask classifier loss.
+        """Computes the CausalSceneTokens loss which combines the quantization loss from scenario and agent
+        tokenization, the trajectory prediction loss and the causal classifier loss.
 
         Args:
             model_output (ModelOutput): pydantic validator for model outputs.

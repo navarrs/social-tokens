@@ -1,7 +1,4 @@
-"""Code for the SceneTokens-Student model. The architecture builds directly from models/wayformer.py with an additional
-scenario classifier head. The model is called student as it does not directly have access to any form of supervision
-for the classification task.
-"""
+"""Code for the CausalSceneTokens model."""
 
 import torch
 from omegaconf import DictConfig
@@ -19,11 +16,15 @@ from scenetokens.schemas.output_schemas import (
 )
 
 
-class SceneTokensTeacher(BaseModel):
-    """SceneTokensStudent class."""
+class CausalSceneTokens(BaseModel):
+    """CausalSceneTokens class.
+
+    This model is similar to SceneTokens (models/scenetokens.py) but with an additional head for classifying the causal
+    agents in the scene.
+    """
 
     def __init__(self, config: DictConfig) -> None:
-        """Initializes the Wayformer class.
+        """Initializes the CausalSceneTokens class.
 
         Args:
             config (DictConfig): Configuration for the model.
@@ -42,8 +43,7 @@ class SceneTokensTeacher(BaseModel):
         )
 
         # Scenario Encoder
-        self.scenario_embedder_pre = self.config.scenario_embedder_pre
-        self.scenario_embedder_post = self.config.scenario_embedder_post
+        self.scenario_embedder = self.config.scenario_embedder
 
         # Scenario Classifier
         self.scenario_tokenizer = self.config.tokenizer
@@ -51,7 +51,7 @@ class SceneTokensTeacher(BaseModel):
         # Trajectory decoder
         self.motion_decoder = self.config.motion_decoder
 
-        # Agent Classifier
+        #  Agent Causality Classifier + Tokenizer
         self.agent_tokenizer = self.config.agent_tokenizer
         self.causal_classifier = nn.Sequential(nn.Linear(self.config.hidden_size, 2))
 
@@ -105,18 +105,21 @@ class SceneTokensTeacher(BaseModel):
         # Get scenario scores if available
         scenario_scores = BaseModel.gather_scores(inputs)
 
-        # Processes and embeddes historical information from self.embed() and produces a decoder embedding using a
+        # Processes and embeds historical information from self.embed() and produces a decoder embedding using a
         # trainable decoder query.
-        scenario_embedder_pre: ScenarioEmbedding = self.embed(ego_agent, other_agents, roads)
+        scenario_embedder: ScenarioEmbedding = self.embed(ego_agent, other_agents, roads)
 
         # Classify the causal agents
-        context_pre = scenario_embedder_pre.scenario_dec.value
-        tokenized_causality: TokenizationOutput = self.agent_tokenizer(context_pre)
+        context = scenario_embedder.scenario_dec.value
+        agent_context = context[:, : self.max_num_agents]
+
+        # Classify the causal agents
+        causal_tokenization_output: TokenizationOutput = self.agent_tokenizer(agent_context)
 
         # Get causal output and use it as a mask for the post scenario embedding
         # causal_pred shape (B, N, 2)
         # causal_idxs shape (B, N)
-        causal_pred = self.causal_classifier(context_pre)
+        causal_pred = self.causal_classifier(agent_context)
         causal_pred_probs = F.softmax(causal_pred, dim=-1)
         causal_output = CausalOutput(
             causal_gt=inputs["causal_idxs"],
@@ -124,31 +127,23 @@ class SceneTokensTeacher(BaseModel):
             causal_pred=causal_pred_probs.argmax(dim=-1).to(torch.float),
             causal_logits=causal_pred,
         )
-        if self.training:
-            causal_mask = causal_output.causal_gt.value.to(torch.bool)
-        else:
-            causal_mask = causal_output.causal_pred.value.to(torch.bool)
-        causal_mask_inv = ~causal_mask
 
-        # Processes and embeddes the causal-aware scenario embedding
-        scenario_embedder_post: ScenarioEmbedding = self.scenario_embedder_post(context_pre, causal_mask_inv)
-
-        # Classify the scenario using a the a selected tokenizer.
-        context_post = scenario_embedder_post.scenario_dec.value
-        tokenized_scenario: TokenizationOutput = self.scenario_tokenizer(context_post)
+        # Classify the scenario using the selected tokenizer.
+        scenario_context = context[:, self.max_num_agents :]
+        tokenized_scenario: TokenizationOutput = self.scenario_tokenizer(scenario_context)
         tokens = None
         if self.config.token_conditioning:
             tokens = tokenized_scenario.token_indices.value
             tokens = F.one_hot(tokens, num_classes=self.config.tokenizer.num_tokens).detach()
 
         # Decode the scenario trajectories
-        decoded_trajectories: TrajectoryDecoderOutput = self.motion_decoder(context_post, tokens)
+        decoded_trajectories: TrajectoryDecoderOutput = self.motion_decoder(scenario_context, tokens)
 
         return ModelOutput(
-            scenario_embedding=scenario_embedder_pre,
+            scenario_embedding=scenario_embedder,
             trajectory_decoder_output=decoded_trajectories,
             tokenization_output=tokenized_scenario,
-            causal_tokenization_output=tokenized_causality,
+            causal_tokenization_output=causal_tokenization_output,
             causal_output=causal_output,
             history_ground_truth=history_ground_truth,
             future_ground_truth=future_ground_truth,
@@ -169,7 +164,7 @@ class SceneTokensTeacher(BaseModel):
 
         Args:
             ego_agent (torch.tensor(B, H, D+1)): tensor containing ego-agent features (D) and mask (1) information.
-            other_agents (torch.tensor(B, H, N, D+1)): tensor containg other agents features and mask information.
+            other_agents (torch.tensor(B, H, N, D+1)): tensor containing other agents features and mask information.
             roads (torch.tensor(B, P, M, D+1)): tensor containing map information.
 
         Returns:
@@ -221,4 +216,4 @@ class SceneTokensTeacher(BaseModel):
         #   mixed_input_masks shape: (B, H * (1+N) + P * M)
         mixed_input_features = torch.concat([agents_emb, road_emb], dim=1)
         mixed_input_masks = torch.concat([agent_masks_inv.view(batch_size, -1), roads_inv.view(batch_size, -1)], dim=1)
-        return self.scenario_embedder_pre(mixed_input_features, mixed_input_masks)
+        return self.scenario_embedder(mixed_input_features, mixed_input_masks)
