@@ -1,6 +1,5 @@
-"""Code for the SceneTokens-Student model. The architecture builds directly from models/wayformer.py with an additional
-scenario classifier head. The model is called student as it does not directly have access to any form of supervision
-for the classification task.
+"""Code for the TrajectoryDecoder component of the models. The trajectory decoder takes in encoded scenario context and
+and learned scenario tokens to produce multi-modal trajectory predictions for all agents in the scene.
 """
 
 import numpy as np

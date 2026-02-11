@@ -1,3 +1,5 @@
+"""BaseModel class for scenario modeling."""
+
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -14,7 +16,13 @@ from scenetokens.utils.constants import KALMAN_DIFFICULTY, MILLION, TrajectoryTy
 
 
 class BaseModel(LightningModule, ABC):
-    """Scenario Model wrapper based on: https://lightning.ai/docs/pytorch/latest/common/lightning_module.html"""
+    """Scenario Model wrapper based on: https://lightning.ai/docs/pytorch/latest/common/lightning_module.html
+
+    The BaseModel class provides a template for implementing scenario modeling architectures. It defines the structure
+    of the model, including the forward pass, optimizer configuration, and training/validation/testing steps. It also
+    includes utility functions for gathering input data, computing metrics, and logging information during training and
+    evaluation.
+    """
 
     def __init__(self, config: DictConfig) -> None:
         """Initializes the BaseModel class.

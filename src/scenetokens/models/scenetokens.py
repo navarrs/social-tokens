@@ -1,6 +1,5 @@
-"""Code for the SceneTokens-Student model. The architecture builds directly from models/wayformer.py with an additional
-scenario classifier head. The model is called student as it does not directly have access to any form of supervision
-for the classification task.
+"""Code for the SceneTokens model. The architecture builds directly from models/wayformer.py with an additional
+scenario tokenization component.
 """
 
 import torch
@@ -18,8 +17,13 @@ from scenetokens.schemas.output_schemas import (
 )
 
 
-class SceneTokensStudent(BaseModel):
-    """SceneTokensStudent class."""
+class SceneTokens(BaseModel):
+    """SceneTokens class.
+
+    This model builds directly from models/wayformer.py with an additional scenario tokenization component which is
+    implemented as a separate head that takes the scenario embedding as input and produces a set of discrete tokens that
+    represent the scenario. The tokens are then used to condition the trajectory decoder.
+    """
 
     def __init__(self, config: DictConfig) -> None:
         """Initializes the Wayformer class.

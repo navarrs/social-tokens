@@ -1,6 +1,5 @@
-"""Code for the SceneTokens-Student model. The architecture builds directly from models/wayformer.py with an additional
-scenario classifier head. The model is called student as it does not directly have access to any form of supervision
-for the classification task.
+"""Code for the PerceiverEmbedder component of the models. The PerceiverEmbedder takes in raw scenario features and
+produces encoded and decoded scenario embeddings using the PerceiverIO architecture.
 """
 
 import torch

@@ -6,7 +6,7 @@ models_to_compare: [
   'wayformer',
   'causal-scenetokens',
   'safe-scenetokens',
-  'scenetokens-student',
+  'scenetokens',
 ]
 
 trajectory_forecasting_metrics: [

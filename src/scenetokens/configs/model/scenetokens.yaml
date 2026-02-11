@@ -2,9 +2,9 @@ defaults:
   - default.yaml
   - wayformer.yaml # Model's backbone architecture directly builds from Wayformer
 
-_target_: scenetokens.models.scenetokens_student.SceneTokensStudent
+_target_: scenetokens.models.scenetokens.SceneTokens
 config:
-  model_name: scenetokens-student
+  model_name: scenetokens
   extra_tags: ${model.config.base_tags}_${model.config.tokenizer_tags}_${model.config.motion_decoder_tags}_${model.config.criterion_tags}
 
   num_classes: 100
@@ -34,7 +34,7 @@ config:
   # Model's optimization criterion
   criterion_tags: reconstruction-${model.config.criterion.config.reconstruction_weight}_trajpred-${model.config.criterion.config.trajpred_weight}_tokenization-${model.config.criterion.config.tokenization_weight}
   criterion:
-    _target_: scenetokens.models.criterion.student.Student
+    _target_: scenetokens.models.criterion.scenetokens.SceneTokens
     config:
       reduction: 'mean'
       reconstruction_weight: 1.0

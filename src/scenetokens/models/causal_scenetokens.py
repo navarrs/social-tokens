@@ -1,7 +1,4 @@
-"""Code for the CausalSceneTokens model. The architecture builds directly from models/wayformer.py with an additional
-scenario classifier head and causal prediction head. The model is called teacher as it directly have access to
-additional supervision for the classification task.
-"""
+"""Code for the CausalSceneTokens model."""
 
 import torch
 from omegaconf import DictConfig
@@ -22,9 +19,8 @@ from scenetokens.schemas.output_schemas import (
 class CausalSceneTokens(BaseModel):
     """CausalSceneTokens class.
 
-    This model is similar to SceneTokensTeacher (models/scenetokens_teacher.py) but does not use two-stage scenario
-    encoding with masking. Instead, it encodes the full scenario in a single pass, without masking any agents based on
-    causal predictions.
+    This model is similar to SceneTokens (models/scenetokens.py) but with an additional head for classifying the causal
+    agents in the scene.
     """
 
     def __init__(self, config: DictConfig) -> None:

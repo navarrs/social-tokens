@@ -17,7 +17,7 @@ from scenetokens.schemas.output_schemas import (
 class SafeSceneTokens(BaseModel):
     """SafeSceneTokens class.
 
-    The architecture builds directly from models/wayformer.py with an additional scenario classifier head and two
+    This model is similar to SceneTokens (models/scenetokens.py) but with an additional scenario classifier head and two
     safety-relevance classifiers derived from SafeShift's Scenario Characterization Scheme. Labels are preprocessed and
     inserted to the agent-centric scenario in 'datasets/base_dataset.py`, which requires running the data processor with
     `autolabel_agents=true`.

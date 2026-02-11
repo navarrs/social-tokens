@@ -1,4 +1,4 @@
-"""Base dataset loader class for the Waymo Open Motion Dataset or ScenarioNet pre-processed data."""
+"""Base dataset loader class for the Trajectory Driving Datasets. """
 
 import json
 import os
@@ -30,7 +30,12 @@ _LOGGER = pylogger.get_pylogger(__name__)
 
 
 class BaseDataset(Dataset, ABC):
-    """Base dataset loader class for trajectory datasets."""
+    """Base dataset loader class for trajectory datasets.
+
+    This class handles loading and processing of scenario data, including caching, multiprocessing, and transformation
+    into an agent-centric format. Subclasses should implement the `load_as_open_scenario` method to load scenarios in
+    their specific format.
+    """
 
     def __init__(self, config: DictConfig) -> None:
         """Dataset constructor."""

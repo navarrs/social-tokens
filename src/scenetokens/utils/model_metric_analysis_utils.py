@@ -18,7 +18,7 @@ from scenetokens.utils.constants import SMALL_EPSILON
 MODEL_NAME_MAP = {
     "wayformer": "Wayformer",
     "scenetransformer": "SceneTransformer",
-    "scenetokens-student": "ST",
+    "scenetokens": "ST",
     "causal-scenetokens": "Causal-ST",
     "safe-scenetokens": "Safe-ST",
 }

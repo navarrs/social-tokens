@@ -1,3 +1,5 @@
+"""Dataset loader for pre-processed Scenario objects from the Waymo Open Motion Dataset (WOMD)."""
+
 import pickle
 from pathlib import Path
 
@@ -21,6 +23,41 @@ _LOGGER = pylogger.get_pylogger(__name__)
 
 
 class WaymoDataset(BaseDataset):
+    """Dataset loader for Waymo Open Motion Dataset (WOMD) pre-processed data.
+
+    This dataset expects scenarios to already be saved as dictionaries in pickle files, with the following information:
+    {
+        'scenario_id': str,
+        'track_infos': dict containing agent information (object_id, object_type, trajs),
+        'map_infos': dict containing static map information (all_polylines, lane, road_line, road_edge, crosswalk,
+            speed_bump, stop_sign),
+        'dynamic_map_infos': dict containing dynamic map information (stop_point, lane_id, state),
+        'timestamps_seconds': list of timestamps corresponding to each timestep in the scenario,
+        'sdc_track_index': index of the ego vehicle track in the track_infos,
+        'tracks_to_predict': dict containing information on which tracks to predict (track_index, difficulty,
+            object_type),
+        'objects_of_interest': list of object IDs that are of interest for prediction (e.g., those that interact with
+            the ego vehicle or are in close proximity).
+    }
+
+    We provide a script that re-packs the original WOMD records into this format in 'scripts/waymo_data_processing.py',
+    and corresponding run instruction in 'docs/DATA_PREPARATION.md'.
+
+    Directory structure expected:
+        /datasets/open_scenario/processed/<variant>/
+        ├── training/
+        │   ├── scenario_001.pkl  # Each contains a complete Scenario object
+        │   ├── scenario_002.pkl
+        │   └── ...
+        ├── validation/
+        │   └── *.pkl
+        └── testing/
+            └── *.pkl
+
+    The BaseDataset._get_dataset_summary() method automatically discovers all .pkl files using rglob, so this works with
+    both flat structures and shard-based structures.
+    """
+
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config=config)
 

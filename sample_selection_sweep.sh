@@ -10,7 +10,7 @@ Usage: $0 [options]
 
 Options:
   -m <models>       Model(s), comma-separated
-                    (default: wayformer, scenetransformer, scenetokens_student, scenetokens_teacher_unmasked, safe_scenetokens)
+                    (default: wayformer, scenetransformer, scenetokens, causal_scenetokens, safe_scenetokens)
   -d <devices>      Devices (e.g. 0 or 0,1)
                     (default: 0)
   -s <strategies>   Strategy/strategies, comma-separated
@@ -25,7 +25,7 @@ Examples:
   $0
 
   # Test specific model and strategy
-  $0 -m scenetokens_student -s random_drop
+  $0 -m scenetokens -s random_drop
 
   # Multiple models and devices
   $0 -m wayformer,scenetransformer -d 0,1
@@ -37,7 +37,7 @@ Examples:
   $0 -p 0.5,0.7,0.9
 
   # Dry run to preview commands
-  $0 -m scenetokens_student -n
+  $0 -m scenetokens -n
 EOF
     exit 1
 }
@@ -47,9 +47,9 @@ EOF
 ############################
 DEFAULT_MODELS=(
     wayformer
+    scenetokens
+    causal_scenetokens
     safe_scenetokens
-    scenetokens_student
-    scenetokens_teacher_unmasked
     scenetransformer
 )
 DEFAULT_DEVICES="0"
@@ -62,6 +62,7 @@ DEFAULT_STRATEGIES=(
   gumbel_token_hamming_drop
 )
 DEFAULT_PERCENTAGES=(0.45 0.55 0.65 0.75 0.85 0.95)
+DEFAULT_SAMPLE_SELECTION_PATH="./meta/scenetokens_strategies"
 
 dry_run=false
 
@@ -72,13 +73,15 @@ models=()
 devices="$DEFAULT_DEVICES"
 strategies=()
 percentages=()
+selection_path="$DEFAULT_SAMPLE_SELECTION_PATH"
 
-while getopts ":m:d:s:p:nh" opt; do
+while getopts ":m:d:s:p:f:nh" opt; do
     case $opt in
         m) IFS=',' read -ra models <<< "$OPTARG" ;;
         d) devices="$OPTARG" ;;
         s) IFS=',' read -ra strategies <<< "$OPTARG" ;;
         p) IFS=',' read -ra percentages <<< "$OPTARG" ;;
+        f) selection_path="$OPTARG" ;;
         n) dry_run=true ;;
         h) usage ;;
         \?) echo "Invalid option: -$OPTARG" >&2; usage ;;
@@ -106,7 +109,7 @@ for model in "${models[@]}"; do
                 model="$model"
                 trainer.devices="[$devices]"
                 sample_selection_strategy="$strategy"
-                sample_selection_path="./meta"
+                sample_selection_path="$selection_path"
                 percentage="$pct"
                 sweep_type="$sweep_type"
             )

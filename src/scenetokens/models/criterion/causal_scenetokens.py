@@ -11,7 +11,7 @@ from scenetokens.models.criterion import (
 from scenetokens.schemas.output_schemas import ModelOutput
 
 
-class CausalST(Criterion):
+class CausalSceneTokens(Criterion):
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config=config)
 
@@ -26,8 +26,8 @@ class CausalST(Criterion):
         )
 
     def forward(self, model_output: ModelOutput) -> torch.Tensor:
-        """Computes the CausalST loss which combines the quantization loss from scenario and agent tokenization, the
-        trajectory prediction loss and the causal classifier loss.
+        """Computes the CausalSceneTokens loss which combines the quantization loss from scenario and agent
+        tokenization, the trajectory prediction loss and the causal classifier loss.
 
         Args:
             model_output (ModelOutput): pydantic validator for model outputs.
