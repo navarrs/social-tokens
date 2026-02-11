@@ -1,3 +1,5 @@
+"""Code for the CausalSceneTokens loss function."""
+
 import torch
 from omegaconf import DictConfig
 
@@ -12,6 +14,10 @@ from scenetokens.schemas.output_schemas import ModelOutput
 
 
 class CausalSceneTokens(Criterion):
+    """Criterion for CausalSceneTokens which combines the quantization loss from scenario and agent tokenization, the
+    trajectory prediction loss and the causal classifier loss.
+    """
+
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config=config)
 

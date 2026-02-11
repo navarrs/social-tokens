@@ -1,3 +1,5 @@
+"""Code for the Reconstruction criterion."""
+
 import torch
 import torch.nn.functional as F  # noqa: N812
 from omegaconf import DictConfig
@@ -7,6 +9,8 @@ from scenetokens.schemas.output_schemas import ModelOutput, TokenizationOutput
 
 
 class Reconstruction(Criterion):
+    """Criterion for computing the reconstruction loss for both scenario and causal tokenization."""
+
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config=config)
 
@@ -50,7 +54,7 @@ class Reconstruction(Criterion):
         if model_output.tokenization_output is not None:
             scenario_tokenization_loss = self.compute_tokenization_reconstruction(model_output.tokenization_output)
 
-        # If training with the 'informed' tokenizers, include the causal tokenization reconstruction.
+        # If training with the tokenizers with auxiliary guidance, include the causal tokenization reconstruction.
         causal_tokenization_loss = None
         if model_output.causal_tokenization_output is not None:
             causal_tokenization_loss = self.compute_tokenization_reconstruction(model_output.causal_tokenization_output)
