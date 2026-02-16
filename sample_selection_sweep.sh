@@ -17,6 +17,8 @@ Options:
                     (default: random_drop, token_random_drop, simple_token_jaccard_drop, gumbel_token_jaccard_drop, simple_token_hamming_drop, gumbel_token_hamming_drop)
   -p <percentages>  Percentage(s), comma-separated
                     (default: 0.45, 0.55, 0.65, 0.75, 0.85, 0.95)
+  -f <path>         Sample selection path
+                    (default: ./meta/scenetokens_strategies)
   -n                Dry run (print commands, do not execute)
   -h                Show this help message
 
@@ -36,6 +38,9 @@ Examples:
   # Custom percentages
   $0 -p 0.5,0.7,0.9
 
+  # Custom sample selection path
+  $0 -f ./custom_strategies
+
   # Dry run to preview commands
   $0 -m scenetokens -n
 EOF
@@ -54,7 +59,7 @@ DEFAULT_MODELS=(
 )
 DEFAULT_DEVICES="0"
 DEFAULT_STRATEGIES=(
-  random_drop
+#   random_drop
   token_random_drop
   simple_token_jaccard_drop
   simple_token_hamming_drop
@@ -74,14 +79,16 @@ devices="$DEFAULT_DEVICES"
 strategies=()
 percentages=()
 selection_path="$DEFAULT_SAMPLE_SELECTION_PATH"
+extra=""
 
-while getopts ":m:d:s:p:f:nh" opt; do
+while getopts ":m:d:s:p:f:e:nh" opt; do
     case $opt in
         m) IFS=',' read -ra models <<< "$OPTARG" ;;
         d) devices="$OPTARG" ;;
         s) IFS=',' read -ra strategies <<< "$OPTARG" ;;
         p) IFS=',' read -ra percentages <<< "$OPTARG" ;;
         f) selection_path="$OPTARG" ;;
+        e) extra="$OPTARG" ;;
         n) dry_run=true ;;
         h) usage ;;
         \?) echo "Invalid option: -$OPTARG" >&2; usage ;;
@@ -102,7 +109,7 @@ done
 for model in "${models[@]}"; do
     for strategy in "${strategies[@]}"; do
         for pct in "${percentages[@]}"; do
-            sweep_type="_${strategy}_${pct}"
+            sweep_type="_${strategy}_${pct}_${extra}"
 
             cmd=(
                 uv run -m scenetokens.train
