@@ -4,7 +4,7 @@ Example usage:
 
     uv run -m scenetokens.sample_selection \
         ckpt_path=/path/to/scenetokens/checkpoint.ckpt
-        model=scenetokens_student
+        model=scenetokens
         selection_strategy='token_random_drop'
 
 See `docs/ANALYSIS.md` and `configs/sample_selection.yaml` for more argument details.

@@ -5,7 +5,7 @@ from scenetokens.models.criterion import Criterion, Reconstruction, TrajectoryPr
 from scenetokens.schemas.output_schemas import ModelOutput
 
 
-class Student(Criterion):
+class SceneTokens(Criterion):
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config=config)
 
@@ -13,8 +13,8 @@ class Student(Criterion):
         self.trajpred_criterion = TrajectoryPrediction(config)
 
     def forward(self, model_output: ModelOutput) -> torch.Tensor:
-        """Computes the Quantized Student loss which combines the quantizatio loss from the scenario classifier and the
-        trajectory predicton loss from the scenario decder.
+        """Computes the Quantized SceneTokens loss which combines the quantization loss from the scenario tokenizer and
+        the trajectory prediction loss from the scenario decoder.
 
         Args:
             model_output (ModelOutput): pydantic validator for model outputs.

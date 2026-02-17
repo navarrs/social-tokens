@@ -10,13 +10,15 @@ Usage: $0 [options]
 
 Options:
   -m <models>       Model(s), comma-separated
-                    (default: wayformer, scenetransformer, scenetokens_student, causal_scenetokens, safe_scenetokens)
+                    (default: wayformer, scenetransformer, scenetokens, causal_scenetokens, safe_scenetokens)
   -d <devices>      Devices (e.g. 0 or 0,1)
                     (default: 0)
   -s <strategies>   Strategy/strategies, comma-separated
                     (default: random_drop, token_random_drop, simple_token_jaccard_drop, gumbel_token_jaccard_drop, simple_token_hamming_drop, gumbel_token_hamming_drop)
   -p <percentages>  Percentage(s), comma-separated
                     (default: 0.45, 0.55, 0.65, 0.75, 0.85, 0.95)
+  -f <path>         Sample selection path
+                    (default: ./meta/scenetokens_strategies)
   -n                Dry run (print commands, do not execute)
   -h                Show this help message
 
@@ -25,7 +27,7 @@ Examples:
   $0
 
   # Test specific model and strategy
-  $0 -m scenetokens_student -s random_drop
+  $0 -m scenetokens -s random_drop
 
   # Multiple models and devices
   $0 -m wayformer,scenetransformer -d 0,1
@@ -36,8 +38,11 @@ Examples:
   # Custom percentages
   $0 -p 0.5,0.7,0.9
 
+  # Custom sample selection path
+  $0 -f ./custom_strategies
+
   # Dry run to preview commands
-  $0 -m scenetokens_student  -n
+  $0 -m scenetokens -n
 EOF
     exit 1
 }
@@ -47,14 +52,14 @@ EOF
 ############################
 DEFAULT_MODELS=(
     wayformer
-    scenetokens_student
+    scenetokens
     causal_scenetokens
     safe_scenetokens
     scenetransformer
 )
 DEFAULT_DEVICES="0"
 DEFAULT_STRATEGIES=(
-  random_drop
+#   random_drop
   token_random_drop
   simple_token_jaccard_drop
   simple_token_hamming_drop
@@ -62,6 +67,7 @@ DEFAULT_STRATEGIES=(
   gumbel_token_hamming_drop
 )
 DEFAULT_PERCENTAGES=(0.45 0.55 0.65 0.75 0.85 0.95)
+DEFAULT_SAMPLE_SELECTION_PATH="./meta/scenetokens_strategies"
 
 dry_run=false
 
@@ -72,13 +78,17 @@ models=()
 devices="$DEFAULT_DEVICES"
 strategies=()
 percentages=()
+selection_path="$DEFAULT_SAMPLE_SELECTION_PATH"
+extra=""
 
-while getopts ":m:d:s:p:nh" opt; do
+while getopts ":m:d:s:p:f:e:nh" opt; do
     case $opt in
         m) IFS=',' read -ra models <<< "$OPTARG" ;;
         d) devices="$OPTARG" ;;
         s) IFS=',' read -ra strategies <<< "$OPTARG" ;;
         p) IFS=',' read -ra percentages <<< "$OPTARG" ;;
+        f) selection_path="$OPTARG" ;;
+        e) extra="$OPTARG" ;;
         n) dry_run=true ;;
         h) usage ;;
         \?) echo "Invalid option: -$OPTARG" >&2; usage ;;
@@ -99,14 +109,14 @@ done
 for model in "${models[@]}"; do
     for strategy in "${strategies[@]}"; do
         for pct in "${percentages[@]}"; do
-            sweep_type="_${strategy}_${pct}"
+            sweep_type="_${strategy}_${pct}_${extra}"
 
             cmd=(
                 uv run -m scenetokens.train
                 model="$model"
                 trainer.devices="[$devices]"
                 sample_selection_strategy="$strategy"
-                sample_selection_path="./meta"
+                sample_selection_path="$selection_path"
                 percentage="$pct"
                 sweep_type="$sweep_type"
             )
