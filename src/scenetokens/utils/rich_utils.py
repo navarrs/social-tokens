@@ -31,6 +31,7 @@ def print_config_tree(
         "analysis",
     ),
     *,
+    print_field_not_in_print_order: bool = True,
     resolve: bool = False,
     save_to_file: bool = False,
 ) -> None:
@@ -39,6 +40,8 @@ def print_config_tree(
     Args:
         cfg (DictConfig): Configuration composed by Hydra.
         print_order (Sequence[str], optional): Determines in what order config components are printed.
+        print_field_not_in_print_order (bool, optional): Whether to print config fields that are not specified in the
+            `print_order` list.
         resolve (bool, optional): Whether to resolve reference fields of DictConfig.
         save_to_file (bool, optional): Whether to export config to the hydra output folder.
     """
@@ -56,9 +59,10 @@ def print_config_tree(
         )
 
     # add all the other fields to queue (not specified in `print_order`)
-    for field in cfg:
-        if field not in queue:
-            queue.append(field)
+    if print_field_not_in_print_order:
+        for field in cfg:
+            if field not in queue:
+                queue.append(field)
 
     # generate config tree from queue
     for field in queue:

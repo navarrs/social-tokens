@@ -1,3 +1,4 @@
+import json
 import math
 from itertools import product
 from logging import Logger
@@ -21,6 +22,11 @@ MODEL_NAME_MAP = {
     "scenetokens": "ST",
     "causal-scenetokens": "Causal-ST",
     "safe-scenetokens": "Safe-ST",
+}
+
+BENCHMARK_NAME_MAP = {
+    "causal-benchmark-labeled": "CausalAgents",
+    "ego-safeshift-causal-benchmark": "EgoSafeShift",
 }
 
 
@@ -841,114 +847,311 @@ def run_benchmark_analysis(config: DictConfig, log: Logger, output_path: Path) -
     ]
     _plot_grouped_bar_chart(summary_df, metrics, output_path, key_metrics_display=key_metrics_display)
 
+    # Generate LaTeX table
+    _convert_to_tex_table(
+        benchmark_df,
+        BENCHMARK_NAME_MAP.get(config.benchmark) or config.benchmark,
+        id_split,
+        ood_split,
+        config.trajectory_forecasting_metrics,
+        output_path,
+    )
+
     print("\n✓ Analysis complete!")
 
 
-def model_to_model_analysis(config: DictConfig, log: Logger) -> None:  # noqa: PLR0915
-    """Loads a CSV containing all model metrics downlaoded from MLflow from produces per-metric barplots with model to
-    model comparisons and generalization assessments.
+def _convert_to_tex_table(  # noqa: PLR0913, PLR0915
+    benchmark_df: pd.DataFrame,
+    benchmark_name: str,
+    id_split: str,
+    ood_split: str,
+    metrics: list[str],
+    output_path: Path | None,
+    min_color_value: float = 20.0,
+) -> str:
+    """Converts the benchmark comparison DataFrame into a LaTeX table with performance gap annotations and coloring.
 
     Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        log (Logger): Logger for logging anslysis information.
+        benchmark_df (pd.DataFrame): DataFrame containing model names and their corresponding metric values.
+        benchmark_name (str): Display name of the benchmark for the table caption.
+        id_split (str): Name of the In-Distribution split used in the metrics.
+        ood_split (str): Name of the Out-of-Distribution split used in the metrics.
+        metrics (list[str]): List of metric column names to include in the table.
+        output_path (Path | None): Directory to save the generated LaTeX file. If None, the LaTeX string will be
+            returned but not saved to a file.
+        min_color_value (float): Minimum color intensity percentage for the gap coloring (0-100). Higher values will
+            make the colors more vibrant even for smaller gaps.
     """
-    base_path = Path(config.base_path)
-    output_path = base_path / "model_to_model_analysis"
+    # Precompute best ID/OOD and gap severity per metric
+    best_id, best_ood, gap_stats = {}, {}, {}
+    for metric in metrics:
+        id_col = f"{id_split}/{metric}"
+        id_vals = benchmark_df[id_col]
+        best_id[metric] = id_vals.min()
+
+        ood_col = f"{ood_split}/{metric}"
+        ood_vals = benchmark_df[ood_col]
+        best_ood[metric] = ood_vals.min()
+
+        gaps = ((ood_vals - id_vals) / (id_vals + SMALL_EPSILON)) * 100
+        gap_stats[metric] = (gaps.min(), gaps.max())  # best, worst
+
+    # Build rows
+    table_rows = []
+    first_row = True
+
+    for _, row in benchmark_df.iterrows():
+        row_parts = []
+        # Multirow benchmark label
+        if first_row:
+            row_parts.append(f"\\multirow{{{len(benchmark_df)}}}{{*}}{{\\texttt{{{benchmark_name}}}}}")
+            first_row = False
+        else:
+            row_parts.append("")
+        row_parts.append(str(row["Model"]))
+
+        id_values, ood_values = [], []
+        for metric in metrics:
+            id_col = f"{id_split}/{metric}"
+            ood_col = f"{ood_split}/{metric}"
+
+            id_val = row[id_col]
+            ood_val = row[ood_col]
+
+            # In distribution value
+            if pd.notna(id_val):
+                id_str = f"{id_val:.3f}"
+                if np.isclose(id_val, best_id[metric]):
+                    id_str = f"\\textbf{{{id_str}}}"
+            else:
+                id_str = "---"
+            id_values.append(id_str)
+
+            # Out of Distribution value with gap annotation and coloring
+            if pd.notna(id_val) and pd.notna(ood_val):
+                gap = ((ood_val - id_val) / (id_val + SMALL_EPSILON)) * 100
+
+                best_gap, worst_gap = gap_stats[metric]
+                denom = max(abs(worst_gap - best_gap), SMALL_EPSILON)
+                severity = abs(gap - best_gap) / denom
+                severity = np.clip(severity, 0, 1)
+
+                intensity = int(min_color_value + severity * (100 - min_color_value))  # min_color_value% - 100%
+
+                color = "OrangeRed" if gap > 0 else "ForestGreen"
+                gap_str = f"\\textcolor{{{color}!{intensity}}}{{{gap:+.2f}\\%}}"
+
+                ood_str = f"{ood_val:.3f}"
+                if np.isclose(ood_val, best_ood[metric]):
+                    ood_str = f"\\textbf{{{ood_str}}}"
+
+                ood_str = f"{ood_str} ({gap_str})"
+            else:
+                ood_str = "---"
+
+            ood_values.append(ood_str)
+
+        id_values.append("")  # Add empty column for spacing
+        row_parts.extend(id_values)
+        ood_values = ["", ood_values]  # Add empty column for spacing
+        row_parts.extend(ood_values)
+
+        table_rows.append(" & ".join(row_parts) + " \\\\")
+
+    # Build LaTeX
+    n_metrics = len(metrics)
+    col_spec = "l l " + "c" * (2 * n_metrics) + "cc"  # Two extra columns for spacing between ID and OOD
+
+    latex = []
+    latex.append("\\begin{table*}[t]")
+    latex.append("\\centering")
+    latex.append("\\small")
+    latex.append("\\setlength{\\tabcolsep}{4pt}")
+    latex.append("\\caption{Distribution Shift Results}")
+    latex.append("\\label{tab:distribution_shift_results}")
+
+    latex.append("\\resizebox{\\textwidth}{!}{%")
+    latex.append("\\begin{tabular}{" + col_spec + "}")
+    latex.append("\\toprule")
+
+    latex.append(
+        f"\\multirow{{2}}{{*}}{{\\textbf{{Benchmark}}}} & \\multirow{{2}}{{*}}{{\\textbf{{Model}}}} & "
+        f"\\multicolumn{{{n_metrics}}}{{c}}{{\\textbf{{In Distribution (Validation)}}}} & "
+        f"\\multicolumn{{{n_metrics}}}{{c}}{{\\textbf{{Out of Distribution (Test)}}}} \\\\"
+    )
+
+    latex.append(" & & " + " & ".join([*metrics, "", "", *metrics]) + " \\\\")
+    latex.append("\\midrule")
+
+    latex.extend(table_rows)
+
+    latex.append("\\bottomrule")
+    latex.append("\\end{tabular}%")
+    latex.append("}")
+    latex.append("\\end{table*}")
+
+    latex_table = "\n".join(latex)
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.mkdir(parents=True, exist_ok=True)
+        (output_path / "results.tex").write_text(latex_table)
+
+    return latex_table
+
+
+def run_comparative_analysis(analysis_paths: dict[str, Path], output_path: Path) -> None:  # noqa: PLR0912, PLR0915
+    """Runs a comparative analysis across the tokenization analyses of multiple experiments.
+
+    Args:
+        analysis_paths (dict[str, Path]): A dictionary mapping experiment names to their respective output paths.
+        output_path (Path): The path where the comparative analysis results should be saved.
+    """
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # The 'all_runs.csv' file contains the metrics for all experiments and is exported from MLflow
-    metrics_df = pd.read_csv(base_path / "all_runs.csv")
+    filename_map = {
+        "class_distribution_stats_best_mode.json": "Token Distribution",
+        "group_uniqueness_stats_group_scenarios.json": "Group Uniqueness",
+        "intergroup_uniqueness_stats.json": "Intergroup Uniqueness",
+        "token_consistency_stats_hamming.json": "Token Consistency",
+        "token_consistency_stats_jaccard.json": "Token Consistency",
+    }
+    metric_map = {
+        "dead_tokens": "Dead Tokens",
+        "mode_0_stats.mean": "Avg. Scenarios per Token",
+        "mode_0_stats.median": "Median Scenarios per Token",
+        "mode_0_stats.norm_mean": "Normalized Mean Scenarios per Token",
+        "mode_0_stats.norm_median": "Normalized Median Scenarios per Token",
+        "mode_0_stats.num_underutilized_tokens": "Underutilized Tokens",
+        "num_total_tokens": "Vocabulary Size",
+        "uniqueness.max": "Max. Vocabulary Overlap",
+        "uniqueness.mean": "Avg. Vocabulary Overlap",
+        "uniqueness.median": "Median Vocabulary Overlap",
+        "uniqueness.min": "Min. Vocabulary Overlap",
+        "uniqueness.std": "Std. Vocabulary Overlap",
+        "intergroup_uniqueness.max": "Max. Intergroup Vocabulary Overlap",
+        "intergroup_uniqueness.mean": "Avg. Intergroup Vocabulary Overlap",
+        "intergroup_uniqueness.median": "Median Intergroup Vocabulary Overlap",
+        "intergroup_uniqueness.min": "Min. Intergroup Vocabulary Overlap",
+        "intergroup_uniqueness.std": "Std. Intergroup Vocabulary Overlap",
+        "wasserstein_distance.max": "Max. Wasserstein Distance",
+        "wasserstein_distance.mean": "Avg. Wasserstein Distance",
+        "wasserstein_distance.median": "Median Wasserstein Distance",
+        "wasserstein_distance.min": "Min. Wasserstein Distance",
+        "wasserstein_distance.std": "Std. Wasserstein Distance",
+        "diagonal.max": "Max. Consistency",
+        "diagonal.mean": "Avg. Consistency",
+        "diagonal.median": "Median Consistency",
+        "diagonal.min": "Min. Consistency",
+        "diagonal.std": "Std. Consistency",
+    }
+    # Run comparative analyses
 
-    # Models to analyze
-    models = ["scenetf", "wayformer", "st-student", "st-teacher", "st-teacher-u"]
-    sample_selection_strategies = ["none", "uniform-random", "token-random", "token-jaccsim", "token-jaccgum"]
-    subset = ["waymo-mini-causal-", "waymo-remove-noncausal-"]
+    # This analysis produces a comparison of the tokenization distributions across the experiments.
+    def _flatten_metrics(data: dict, prefix: str = "") -> dict[str, float | int | str | bool | None]:
+        flat: dict[str, float | int | str | bool | None] = {}
+        for key, value in data.items():
+            name = f"{prefix}.{key}" if prefix else str(key)
+            if isinstance(value, dict):
+                flat.update(_flatten_metrics(value, name))
+            else:
+                flat[name] = value
+        return flat
 
-    for metric in config.metrics_to_compare:
-        generalization = pd.DataFrame({"models": models})
-
-        for split, ss_strategy in product(config.splits_to_compare, sample_selection_strategies):
-            log.info("Comparing split: %s, metric: %s, sample selection strategy: %s", split, metric, ss_strategy)
-
-            # select columns that contain the split string
-            metric_cols = [column for column in metrics_df.columns if metric in column]
-            subset_cols = [column for column in metric_cols if any(sub in column for sub in subset)]
-            valid_cols = ["Name"] + [column for column in subset_cols if split in column]
-            if not valid_cols:
-                log.info("No columns found for split %s; skipping.", split)
-                continue
-
-            # filter rows by model and sample selection strategy, keep only the split-related columns + model_name
-            filtered_df = metrics_df[valid_cols].copy()
-            if filtered_df.empty:
-                log.info("Missing data; skipping")
-                continue
-
-            strategy_models = [model + f"_{ss_strategy}" for model in models] if ss_strategy != "none" else models
-            filtered_df = filtered_df[filtered_df["Name"].isin(strategy_models)]
-            # preserve the desired model order by making "Name" a categorical with the strategy_models ordering
-            filtered_df["Name"] = pd.Categorical(filtered_df["Name"], categories=strategy_models, ordered=True)
-            filtered_df = filtered_df.sort_values("Name").reset_index(drop=True)
-            if filtered_df.empty:
-                log.info("No rows match models for strategy %s; skipping.", ss_strategy or "none")
-                continue
-
-            # Compute generalization values
-            unperturbed_values = filtered_df[filtered_df.columns[1]] + SMALL_EPSILON
-            perturbed_values = filtered_df[filtered_df.columns[2]]
-            generalization_values = 100 * (perturbed_values - unperturbed_values) / unperturbed_values.abs()
-            generalization[ss_strategy] = generalization_values
-
-            # Melt for seaborn plotting
-            cols_to_melt = [col for col in filtered_df.columns if col != "Name"]
-            df_melted = filtered_df.melt(
-                id_vars=["Name"], value_vars=cols_to_melt, var_name="Metric", value_name="Value"
-            )
-            if metric == "missRate":
-                df_melted = df_melted[~df_melted.Metric.str.contains(metric + "6")]
-
-            # Create barplot comparing the model groups
-            plt.subplots(figsize=(10, 6))
-            sns.barplot(x="Metric", y="Value", hue="Name", data=df_melted, palette=config.palette)
-
-            min_value, max_value = df_melted.min().Value, df_melted.max().Value
-            plt.ylim(min_value - 0.1 * min_value, max(max_value + 0.1 * max_value, 1.0))
-            # plt.yscale("log")
-            # plt.ylim(bottom=0.0, top=10)
-
-            plt.title(f"Sample Selection Strategy: {ss_strategy}")
-            plt.xlabel("Metrics")
-            plt.ylabel("Metrics Values")
-            plt.legend(title="Models", title_fontsize="12", fontsize="10", loc="upper left")
-
-            plt.grid(axis="y", linestyle="--", alpha=0.5)
-            plt.tight_layout()
-
-            # Show the plot
-            output_filepath = output_path / f"{split}_{metric}_ss-{ss_strategy}.png"
-            plt.savefig(output_filepath, dpi=200)
-            plt.close()
-
-        # Generalization plot
-        plt.subplots(figsize=(10, 6))
-
-        generalization_melted = generalization.melt(
-            id_vars=["models"], var_name="Strategy", value_name="Generalization"
+    def _escape_latex(text: str) -> str:
+        return (
+            text.replace("\\", "\\textbackslash{}")
+            .replace("_", "\\_")
+            .replace("%", "\\%")
+            .replace("&", "\\&")
+            .replace("#", "\\#")
+            .replace("$", "\\$")
+            .replace("{", "\\{")
+            .replace("}", "\\}")
+            .replace("~", "\\textasciitilde{}")
+            .replace("^", "\\textasciicircum{}")
         )
-        sns.barplot(x="Strategy", y="Generalization", hue="models", data=generalization_melted, palette=config.palette)
 
-        min_value, max_value = generalization_melted.min().Generalization, generalization_melted.max().Generalization
-        plt.ylim(min_value - 0.1 * min_value, max(max_value + 0.1 * max_value, 1.0))
+    def _format_value(value: float | str | bool | None) -> str:  # noqa: FBT001
+        if value is None:
+            return "--"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, float):
+            return f"{value:.3f}"
+        return str(value)
 
-        plt.title(f"Generalization: {metric}")
-        plt.xlabel("Strategy")
-        plt.ylabel("Generalization")
-        plt.legend(title="Models", title_fontsize="12", fontsize="10", loc="upper left")
+    experiment_names = sorted(analysis_paths.keys())
+    model_names = [MODEL_NAME_MAP.get(name.split("_")[1], "Unknown Model") for name in experiment_names]
+    rows: dict[tuple[str, str], dict[str, float | int | str | bool | None]] = {}
 
-        plt.grid(axis="y", linestyle="--", alpha=0.5)
-        plt.tight_layout()
+    for model_name, experiment_name in zip(model_names, experiment_names, strict=True):
+        analysis_path = analysis_paths[experiment_name]
 
-        # Show the plot
-        output_filepath = output_path / f"generalization_{metric}.png"
-        plt.savefig(output_filepath, dpi=200)
-        plt.close()
+        for json_path in sorted(analysis_path.glob("*.json")):
+            with json_path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if not isinstance(data, dict):
+                continue
+            flat = _flatten_metrics(data)
+            for metric_name, metric_value in flat.items():
+                row_key = (json_path.name, metric_name)
+                if row_key not in rows:
+                    rows[row_key] = {}
+                rows[row_key][model_name] = metric_value
+
+    if not rows:
+        print("No JSON metrics found for comparative analysis.")
+        return
+
+    table_path = output_path / "comparative_metrics_table.tex"
+    columns = "l l " + " ".join(["c" for _ in model_names])
+    header_cells = ["Analysis", "Metric"] + [_escape_latex(str(name)) for name in model_names]
+
+    with table_path.open("w", encoding="utf-8") as handle:
+        handle.write("\\begin{table}[h!]\n")
+        handle.write("\\centering\n")
+        handle.write("\\small\n")
+        handle.write("\\setlength{\\tabcolsep}{4pt}\n")
+
+        handle.write("\\caption{Tokenization Analysis}\n")
+        handle.write("\\label{tab:tokenization_analysis}\n")
+
+        handle.write("\\resizebox{\\columnwidth}{!}{%\n")
+        handle.write("\\begin{tabular}{%s}\n" % columns)  # noqa: UP031
+        handle.write("\\toprule\n")
+
+        handle.write(" %s \\\\" % " & ".join([f"\\textbf{{{cell}}}" for cell in header_cells]))  # noqa: UP031
+        handle.write("\n\\midrule\n")
+
+        file_to_metrics: dict[str, list[str]] = {}
+        for file_name, metric_name in rows:
+            file_to_metrics.setdefault(file_name, []).append(metric_name)
+
+        for file_name in sorted(file_to_metrics.keys()):
+            metrics = sorted(file_to_metrics[file_name])
+            for idx, metric_name in enumerate(metrics):
+                values = rows[(file_name, metric_name)]
+                if idx == 0:
+                    file_cell = (
+                        f"\\multirow{{{len(metrics)}}}{{*}}{{{_escape_latex(filename_map.get(file_name, file_name))}}}"
+                    )
+                else:
+                    file_cell = ""
+                row_values = [
+                    file_cell,
+                    _escape_latex(metric_map.get(metric_name, metric_name)),
+                ]
+                for model_name in model_names:
+                    row_values.extend([_escape_latex(_format_value(values.get(model_name)))])
+                handle.write(" %s \\\\\n" % " & ".join(row_values))  # noqa: UP031
+
+            # only add midrule after each file group, not after the last one
+            if file_name != sorted(file_to_metrics.keys())[-1]:
+                handle.write("\n\\midrule\n")
+
+        handle.write("\\bottomrule\n")
+        handle.write("\\end{tabular}\n")
+
+        handle.write("}\n")
+        handle.write("\\end{table}\n")

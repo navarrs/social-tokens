@@ -65,9 +65,9 @@ benchmark_colormap: null
 benchmark_splits_to_compare: []
 
 # Ego-safeshift analysis
-run_ego_safeshift_analysis: false
+run_ego_safeshift_analysis: true
 ego_safeshift_benchmark: 'ego-safeshift-causal-benchmark'
-ego_safeshift_filepath: "./meta/runs/ego-safeshift_benchmark.csv"
+ego_safeshift_filepath: "./meta/distribution_shift_results/ego_safeshift_benchmark.csv"
 ego_safeshift_colormap: colorblind
 ego_safeshift_splits_to_compare: [
   'test/waymo-causal-ego-safeshift-id',
@@ -75,9 +75,9 @@ ego_safeshift_splits_to_compare: [
 ]
 
 # Causal benchmark analysis
-run_causal_benchmark_analysis: false
+run_causal_benchmark_analysis: true
 causal_benchmark: 'causal-benchmark-labeled'
-causal_benchmark_filepath: "./meta/runs/causal_benchmark.csv"
+causal_benchmark_filepath: "./meta/distribution_shift_results/causal_benchmark.csv"
 causal_benchmark_colormap: colorblind
 causal_benchmark_splits_to_compare: [
   'test/waymo-mini-causal-testing',

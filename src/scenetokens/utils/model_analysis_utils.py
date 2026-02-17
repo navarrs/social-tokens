@@ -1,5 +1,6 @@
 """Utility functions to perform model analysis. See 'docs/ANALYSIS.md' for details on usage."""
 
+import json
 import pickle
 from pathlib import Path
 
@@ -88,7 +89,7 @@ def get_scenario_classes_per_mode(
     return np.asarray(scenario_ids), np.stack(scenario_classes), num_classes
 
 
-def plot_scenario_class_distribution(
+def plot_scenario_class_distribution(  # noqa: PLR0915
     config: DictConfig, model_outputs: dict[str, output.ModelOutput], output_path: Path
 ) -> None:
     """Creates a histogram over the scenario classes for the given batches.
@@ -107,8 +108,18 @@ def plot_scenario_class_distribution(
             model_outputs, rank_by_probability=config.rank_by_probability
         )
 
+    distribution_stats = {}
+
+    num_total_tokens = config.model.config.num_classes if config.model.config.num_classes is not None else 100
+    underutilization_threshold = 100.0 / num_total_tokens
     num_scenarios, num_modes = scenario_classes.shape
     unique_classes = np.unique(scenario_classes).tolist()
+
+    # Calculate how many dead tokens there are (tokens that are not assigned to any scenario in any mode)
+    dead_tokens = num_total_tokens - len(unique_classes)
+    distribution_stats["num_total_tokens"] = num_total_tokens
+    distribution_stats["dead_tokens"] = dead_tokens
+
     _, axs = plt.subplots(nrows=num_modes, figsize=(len(unique_classes), 20 * num_modes))
 
     colors = sns.color_palette(palette=config.palette, n_colors=num_classes)
@@ -119,6 +130,19 @@ def plot_scenario_class_distribution(
     sns.set_style("whitegrid")
     for num_mode in range(num_modes):
         scenario_classes_mode = scenario_classes[:, num_mode]
+
+        # Create a histogram for numerical stats
+        mode_stats = {}
+        counts, _ = np.histogram(scenario_classes_mode, bins=unique_classes)
+        normalized_counts = counts / num_scenarios
+        mode_stats["mean"] = counts.mean().item()
+        mode_stats["norm_mean"] = normalized_counts.mean().item()
+        mode_stats["median"] = np.median(counts).item()
+        mode_stats["norm_median"] = np.median(normalized_counts).item()
+        mode_stats["num_underutilized_tokens"] = (normalized_counts < underutilization_threshold).sum().item()
+        distribution_stats[f"mode_{num_mode}_stats"] = mode_stats
+
+        # Create a histogram for visualization
         classes_dict = {"scenario_id": scenario_ids, "scenario_class": scenario_classes_mode}
         classes_df = pd.DataFrame(classes_dict)
 
@@ -151,25 +175,29 @@ def plot_scenario_class_distribution(
         heatmap[num_mode] = counts
 
     suffix = "_best_mode" if config.best_mode_only else "_ranked_modes"
-    output_filepath = f"{output_path}/class_histogram{suffix}.png"
+    output_filepath = output_path / f"class_histogram{suffix}.png"
     sns.despine()
     plt.tight_layout()
     plt.savefig(output_filepath, dpi=400)
     plt.close()
 
     # Plot heatmap
-    output_filepath = f"{output_path}/class_heatmap{suffix}.png"
+    output_filepath = output_path / f"class_heatmap{suffix}.png"
     plt.subplots(figsize=(2 * len(unique_classes), 5 * num_modes))
     sns.heatmap(heatmap, xticklabels=arange, linewidth=1.0)
     plt.tight_layout()
     plt.savefig(output_filepath, dpi=200)
 
-    output_filepath = f"{output_path}/class_log-heatmap{suffix}.png"
+    output_filepath = output_path / f"class_log-heatmap{suffix}.png"
     log_heatmap = np.log10(heatmap + 1)
     plt.subplots(figsize=(2 * len(unique_classes), 5 * num_modes))
     sns.heatmap(log_heatmap, xticklabels=arange, linewidth=1.0)
     plt.tight_layout()
     plt.savefig(output_filepath, dpi=200)
+
+    distribution_stats_output_filepath = output_path / f"class_distribution_stats{suffix}.json"
+    with distribution_stats_output_filepath.open("w") as f:
+        json.dump(distribution_stats, f, indent=4)
     print("\tDone")
 
 
@@ -612,12 +640,14 @@ def compute_alignment_scores(
 def compute_token_consistency_matrix(
     config: DictConfig,
     model_outputs: dict[str, output.ModelOutput],
+    output_path: Path,
 ) -> npt.NDArray[np.float64]:
     """Creates a histogram over the scenario classes for the given batches.
 
     Args:
         config (DictConfig): encapsulates model analysis configuration parameters.
         model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+        output_path (Path): output path where visualization will be saved to.
 
     Returns:
         consistency_matrix (npt.NDArray[np.float64]): a matrix representing the consistency of each group.
@@ -639,6 +669,32 @@ def compute_token_consistency_matrix(
         assigned_samples = tokenization_groups[i]
         scores = compute_alignment_scores(group_modes[j].tolist(), assigned_samples, config.consistency_measure)
         consistency_matrix[i, j] = scores.mean()
+
+    # Visualize the consistency matrix as a heatmap
+    plot_heatmap(
+        consistency_matrix,
+        title="Token Asignment Consistency",
+        x_label="Group Mode",
+        y_label="Token Group",
+        cbar_label="Average Consistency Index",
+        output_filepath=output_path / f"token_consistency_matrix_{config.consistency_measure}.png",
+    )
+
+    # Compute stats
+    diagonal = np.diag(consistency_matrix)
+    tokenization_stats = {
+        "diagonal": {
+            "min": diagonal.min().item(),
+            "max": diagonal.max().item(),
+            "mean": diagonal.mean().item(),
+            "std": diagonal.std().item(),
+            "median": np.median(diagonal).item(),
+        }
+    }
+    tokenization_stats_output_filepath = output_path / f"token_consistency_stats_{config.consistency_measure}.json"
+    with tokenization_stats_output_filepath.open("w") as f:
+        json.dump(tokenization_stats, f, indent=4)
+
     return consistency_matrix
 
 
@@ -685,12 +741,14 @@ def plot_uniqueness_index(
 def compute_group_uniqueness(
     config: DictConfig,
     model_outputs: dict[str, output.ModelOutput],
-) -> npt.NDArray[np.float64]:
+    output_path: Path,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Computes the uniquenes index and counts for each tokenization group w.r.t the scenario vocabulary.
 
     Args:
         config (DictConfig): encapsulates model analysis configuration parameters.
         model_outputs (dict[str, output.ModelOutput]): a list of model outputs per scenario.
+        output_path (Path): filepath to save the visualization.
 
     Returns:
         group_uniqueness (npt.NDArray[np.float64]): a matrix representing the uniqueness index of each group.
@@ -719,31 +777,118 @@ def compute_group_uniqueness(
         counts /= norm_value
         group_vocab_counts[n, unique] = counts
 
+    # Visualize results
+    plot_uniqueness_index(config, group_uniqueness, output_path)
+    plot_heatmap(
+        group_vocab_counts,
+        title="Group Uniqueness Heatmap",
+        x_label="Group",
+        y_label="Vocabulary",
+        cbar_label="Uniqueness Index",
+        output_filepath=output_path / f"group_uniqueness_counts_{config.normalize_counts}.png",
+    )
+
+    # Save stats
+    group_uniqueness_stats = {
+        "uniqueness": {
+            "min": group_uniqueness.min().item(),
+            "max": group_uniqueness.max().item(),
+            "mean": group_uniqueness.mean().item(),
+            "std": group_uniqueness.std().item(),
+            "median": np.median(group_uniqueness).item(),
+        }
+    }
+    group_uniqueness_stats_output_filepath = output_path / f"group_uniqueness_stats_{config.normalize_counts}.json"
+    with group_uniqueness_stats_output_filepath.open("w") as f:
+        json.dump(group_uniqueness_stats, f, indent=4)
+
     return group_uniqueness, group_vocab_counts
 
 
 def compute_intergroup_uniqueness(
     config: DictConfig,
     model_outputs: dict[str, output.ModelOutput],
+    output_path: Path,
 ) -> npt.NDArray[np.float64]:
     """Computes the uniquenes index and counts for each tokenization group w.r.t all other tokenization groups.
 
     Args:
         config (DictConfig): encapsulates model analysis configuration parameters.
         model_outputs (dict[str, output.ModelOutput]): a list of model outputs per scenario.
+        output_path (Path): filepath to save the visualization.
 
     Returns:
         intergroup_uniqueness (npt.NDArray[np.float64]): a matrix representing the consistency of each group.
     """
     num_tokens = config.model.config.num_classes
     tokenization_groups, _ = get_tokenization_groups(config, model_outputs)
-    group_unique, _ = get_group_unique(tokenization_groups)
+    group_unique, group_counts = get_group_unique(tokenization_groups)
 
     intergroup_uniqueness = np.zeros(shape=(num_tokens, num_tokens))
+    categorical_vector = np.arange(num_tokens)
+    wd_list = []
     for (i, j), _ in np.ndenumerate(intergroup_uniqueness):
-        group_i = group_unique.get(i, None)
-        group_j = group_unique.get(j, None)
-        if group_i is None or group_j is None:
+        if i < j:
             continue
-        intergroup_uniqueness[i, j] = compute_jaccard_index(set(group_i.tolist()), set(group_j.tolist()))
+        group_i = group_unique.get(i, None)
+        counts_i = group_counts.get(i, None)
+
+        group_j = group_unique.get(j, None)
+        counts_j = group_counts.get(j, None)
+        if group_i is None or group_j is None or counts_i is None or counts_j is None:
+            continue
+
+        # If group information is valid, compute the uniqueness index and counts
+        cat_i = np.zeros(shape=(num_tokens))
+        cat_i[group_i] = categorical_vector[group_i]
+        norm_counts_i = counts_i / counts_i.sum()
+        norm_i = np.zeros(shape=(num_tokens))
+        norm_i[group_i] = norm_counts_i.astype(np.float64)
+
+        cat_j = np.zeros(shape=(num_tokens))
+        cat_j[group_j] = categorical_vector[group_j]
+        norm_counts_j = counts_j / counts_j.sum()
+        norm_j = np.zeros(shape=(num_tokens))
+        norm_j[group_j] = norm_counts_j.astype(np.float64)
+
+        wd = stats.wasserstein_distance(cat_i, cat_j, norm_i, norm_j)
+        if i != j:
+            wd_list.append(wd)
+        wd_inv = 1 - wd / (categorical_vector.max() - categorical_vector.min())
+        # jaccard_index_ij = compute_jaccard_index(set(group_i.tolist()), set(group_j.tolist()))
+        # intergroup_uniqueness[i, j] = jaccard_index_ij * (wd_inv)
+        intergroup_uniqueness[i, j] = wd_inv
+
+    # Visualize the uniqueness matrix as a heatmap
+    plot_heatmap(
+        intergroup_uniqueness,
+        title="Intergroup Uniqueness Heatmap",
+        x_label="Group",
+        y_label="Group",
+        cbar_label="Uniqueness Index",
+        output_filepath=output_path / "intergroup_uniqueness.png",
+    )
+
+    # Compute stats
+    wd = np.array(wd_list)
+    intergroup_stats = {
+        "intergroup_uniqueness": {
+            "min": intergroup_uniqueness.min().item(),
+            "max": intergroup_uniqueness.max().item(),
+            "mean": intergroup_uniqueness.mean().item(),
+            "std": intergroup_uniqueness.std().item(),
+            "median": np.median(intergroup_uniqueness).item(),
+        },
+        "wasserstein_distance": {
+            "min": wd.min().item(),
+            "max": wd.max().item(),
+            "mean": wd.mean().item(),
+            "std": wd.std().item(),
+            "median": np.median(wd).item(),
+        },
+    }
+    intergroup_uniqueness_stats_output_filepath = output_path / "intergroup_uniqueness_stats.json"
+    with intergroup_uniqueness_stats_output_filepath.open("w") as f:
+        json.dump(intergroup_stats, f, indent=4)
+
     return intergroup_uniqueness
