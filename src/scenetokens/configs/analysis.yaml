@@ -28,7 +28,7 @@ experiment_dirs: [
   causal-benchmark-labeled_safe-scenetokens_safe-weight_2026-01-13_18-45-53,
 
   # Causal-ST Model
-  # causal-benchmark-labeled_causal-scenetokens_2026-02-05_15-05-18,
+  causal-benchmark-labeled_causal-scenetokens_2026-02-05_15-05-18,
 
   # Student Model
   causal-benchmark-labeled_scenetokens_2026-02-13_19-21-01

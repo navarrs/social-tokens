@@ -48,7 +48,12 @@ def compute_displacement_error(
     valid_idx: torch.Tensor,
 ) -> tuple[torch.Tensor, ...]:
     """Computes the average error between the valid states of two trajectories.
-            B: batch size, M: number of modes, T: number of timesteps, D: trajectory dimensions
+
+    Nomenclature:
+        B: batch size
+        M: number of modes
+        T: number of timesteps
+        D: trajectory dimensions (usually 2 for x and y)
 
     Args:
         pred_traj (torch.Tensor(B, M, T, D)): predicted trajectory
@@ -70,7 +75,10 @@ def compute_displacement_error(
 
 def compute_miss_rate(distances: torch.Tensor, miss_threshold: float = 2.0) -> torch.Tensor:
     """Computes the miss rate of the final distances.
-        B: batch size, M: number of modes
+
+    Nomenclature:
+        B: batch size
+        M: number of modes
 
     Args:
         distances (torch.Tensor(B, M)): array of distances
@@ -86,8 +94,11 @@ def compute_miss_rate(distances: torch.Tensor, miss_threshold: float = 2.0) -> t
 
 def compute_perplexity(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """Compute the perplexity, the uncertainty of the logits with the target.
-        B: batch size, Q: number of queries V: vocabulary size
 
+    Nomenclature:
+        B: batch size
+        Q: number of queries
+        V: vocabulary size
 
     Args:
         logits (torch.Tensor(B, Q, V)): model output logits
@@ -115,7 +126,11 @@ def compute_perplexity(logits: torch.Tensor, target: torch.Tensor) -> torch.Tens
 
 def compute_marginal_pdf(x: torch.Tensor, y: torch.Tensor, sigma: float = 0.1) -> tuple[torch.Tensor, torch.Tensor]:
     """Computes the marginal probability density function (PDF) given two variables.
-        B: batch size, Q: number of queries C: number of classes
+
+    Nomenclature:
+        B: batch size
+        Q: number of queries
+        C: number of classes
 
     Args:
         x (torch.Tensor(B, Q, C)): a tensor representing a variable.
@@ -157,7 +172,11 @@ def compute_mutual_information(x: torch.Tensor, y: torch.Tensor, *, normalize: b
     """Computes the mutual information between the X and Y. I(X;Y) = H(X) + H(Y) - H(X;Y), where H(X) and H(Y) are the
     marginal entropies and H(X;Y) is the conditional entropy. Implementation based on:
     https://github.com/connorlee77/pytorch-mutual-information
-        B: batch size, Q: number of queries C: number of classes
+
+    Nomenclature:
+        B: batch size
+        Q: number of queries
+        C: number of classes
 
     Args:
         x (torch.Tensor(B, C)): probability distribution over the classes.
@@ -280,3 +299,77 @@ def compute_accuracy(labels: torch.Tensor, predictions: torch.Tensor) -> tuple[t
     # F1 score
     f1_score = 2 * (precision * recall) / (precision + recall + SMALL_EPSILON)
     return precision, recall, f1_score
+
+
+def compute_collision_rate(  # noqa: PLR0913
+    ego_pred_traj: torch.Tensor,
+    ego_pred_prob: torch.Tensor,
+    ego_index: torch.Tensor,
+    others_gt_trajs: torch.Tensor,
+    others_gt_trajs_mask: torch.Tensor,
+    collision_thresholds: list[float] = [0.1, 0.25, 0.5, 1.0],  # noqa: B006
+    *,
+    only_best_mode: bool = False,
+    separate_by_thresholds: bool = False,
+) -> dict[str, torch.Tensor]:
+    """Computes the collision rate between the predicted trajectory and other agents' trajectories.
+
+    Nomenclature:
+        B: batch size
+        M: number of predicted modes
+        T: number of timesteps
+        D: trajectory dimensions (usually 2 for x and y)
+        N: number of other agents in the scene
+
+    Args:
+        ego_pred_traj (torch.Tensor(B, M, T, D)): predicted trajectory of the ego agent.
+        ego_pred_prob (torch.Tensor(B, M)): predicted probability of each mode for the ego agent.
+        ego_index (torch.Tensor(B)): index of the ego agent in the others_gt_trajs tensor.
+        others_gt_trajs (torch.Tensor(B, N, T, D)): ground truth trajectories of other agents.
+        others_gt_trajs_mask (torch.Tensor(B, N, T)): mask for valid trajectory points of other agents.
+        collision_thresholds (list[float]): list of distance thresholds to consider a collision.
+        only_best_mode (bool): if True, only considers the best mode for collision calculation.
+        separate_by_thresholds (bool): if True, returns a dictionary with collision rates for each threshold, otherwise
+            returns a dictionary with a single key "collisionRateAllModes".
+
+    Returns:
+        collision_rate (dict[str, torch.Tensor]): dictionary containing the collision rate for each threshold.
+    """
+    batch_size, num_modes, _, _ = ego_pred_traj.shape
+
+    # Zero out the ego agent's trajectory in the others_gt_trajs tensor to avoid self-collision
+    batch_indeces = torch.arange(batch_size, device=ego_pred_traj.device)
+    other_agents = others_gt_trajs.clone()
+    other_agents[batch_indeces, ego_index] = 0.0
+    other_agents_masks = others_gt_trajs_mask.clone()
+    other_agents_masks[batch_indeces, ego_index] = False
+
+    # Compute pairwise distances between predicted trajectory and other agents' trajectories
+    # distances shape: (B, M, N, T)
+    if only_best_mode:
+        best_mode_indices = torch.argmax(ego_pred_prob, dim=1)  # shape: (B,)
+        ego_pred_traj = ego_pred_traj[batch_indeces, best_mode_indices]  # shape: (B, T, D)
+        ego_pred_traj = ego_pred_traj.unsqueeze(1)  # shape: (B, 1, T, D)
+    ego = ego_pred_traj[:, :, :, :2].unsqueeze(2)  # (B, M, 1, T, D)
+    others = other_agents[:, None, :, :, :2]  # (B, 1, N, T, D)
+    distances = torch.norm(ego - others, dim=-1)
+
+    # Invalidate masked GT trajectory points
+    distances = distances.masked_fill(~other_agents_masks[:, None, :, :], float("inf"))
+
+    # Check for collisions based on distance thresholds
+    thresholds = torch.tensor(collision_thresholds, device=ego_pred_traj.device).view(1, 1, 1, 1, -1)
+    # Calculate collision counts: shape (B, M, N, T, num_thresholds)
+    collision_counts = distances.unsqueeze(-1) < thresholds
+    # Collapse agents and time, each pair of predicted trajectory and other agent is considered a collision if any of
+    # the timesteps is a collision, we dont want to double count.
+    mode_collisions = collision_counts.any(dim=(2, 3))  # shape (B, M, num_thresholds)
+
+    # Return a dictionary with the collision rate for each threshold
+    collision_rate = {}
+    if separate_by_thresholds:
+        for i, threshold in enumerate(collision_thresholds):
+            collision_rate[f"{threshold}"] = mode_collisions[:, :, i].float().mean(dim=1)
+    else:
+        collision_rate = {"all": (mode_collisions.any(dim=-1)).float().mean(dim=1)}
+    return collision_rate

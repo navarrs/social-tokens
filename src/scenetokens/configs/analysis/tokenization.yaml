@@ -5,23 +5,23 @@
 # these analyses are below each tag.
 
 # Produces a histograms over the tokenized scenarios, representing token-utilization.
-run_scenario_class_distribution: false
+run_scenario_class_distribution: true
 best_mode_only: true # if true, it only considers the token from the 'best' predicted mode
 rank_by_probability: true # if true and 'best_mode_only: false', it will rank the tokens based on the mode probability.
 
 # Token consistency analysis
-run_token_consistency_analysis: false
+run_token_consistency_analysis: true
 consistency_measure: hamming # either of 'jaccard' or 'hamming'
 
 # Group uniqueness analysis
-run_group_uniqueness_analysis: false
+run_group_uniqueness_analysis: true
 normalize_counts: 'group_scenarios' # either of 'all_scenarios' or 'group_scenarios' or 'none'
 
 # Inter-group uniqueness
-run_intergroup_analysis: false
+run_intergroup_analysis: true
 
 # Produces a visualization of the scenario embeddings using dimensionality reduction methods.
-run_dim_reduction_analysis: false
+run_dim_reduction_analysis: true
 dim_reduction_algorithm: tsne # either of 'tsne' or 'umap'
 num_components: 2
 reduce: input_embedding # either of 'input_embedding' or 'quantized_embedding'

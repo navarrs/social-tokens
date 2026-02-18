@@ -178,7 +178,7 @@ def plot_scenario_class_distribution(  # noqa: PLR0915
     output_filepath = output_path / f"class_histogram{suffix}.png"
     sns.despine()
     plt.tight_layout()
-    plt.savefig(output_filepath, dpi=400)
+    plt.savefig(output_filepath, dpi=200)
     plt.close()
 
     # Plot heatmap

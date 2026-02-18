@@ -40,6 +40,7 @@ seed: 42 # Seed for random generators
 split: train # Specify split to consider 'train', 'val' or 'test'
 scenarios_path: ${paths.base_path}/processed/mini_causal/training # Specify path to input scenarios
 
+
 # Specify name of experiment to consider
 paths:
   # Student Model (ckpt: epoch_140.ckpt)

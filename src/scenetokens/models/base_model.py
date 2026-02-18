@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -10,7 +11,13 @@ from characterization.utils.common import AgentType
 from omegaconf import DictConfig
 from pytorch_lightning import LightningModule
 
-from scenetokens.schemas.output_schemas import ModelOutput, ScenarioScores
+from scenetokens.schemas.output_schemas import (
+    CausalOutput,
+    ModelOutput,
+    SafetyOutput,
+    ScenarioScores,
+    TrajectoryDecoderOutput,
+)
 from scenetokens.utils import metric_utils, save_cache
 from scenetokens.utils.constants import KALMAN_DIFFICULTY, MILLION, TrajectoryType
 
@@ -319,7 +326,142 @@ class BaseModel(LightningModule, ABC):
         return split_dict
 
     @staticmethod
-    def compute_metrics(inputs: dict, outputs: ModelOutput) -> dict[str, npt.NDArray[np.float64]]:
+    def _compute_trajectory_metrics(
+        inputs: dict[str, Any], trajectory_ouput: TrajectoryDecoderOutput
+    ) -> dict[str, npt.NDArray[np.float64]]:
+        """Computes trajectory metrics on model outputs.
+
+        Args:
+            inputs (dict): dictionary containing input scenario information
+            trajectory_ouput: trajectory decoder output from the model's forward pass.
+
+        Returns:
+            dict[str, npt.NDArray[np.float64]]: dictionary containing computed trajectory metrics
+        """
+        gt_traj = inputs["center_gt_trajs"].unsqueeze(1)  # .transpose(0, 1).unsqueeze(0)
+        gt_traj_mask = inputs["center_gt_trajs_mask"].unsqueeze(1)
+        center_gt_final_valid_idx = inputs["center_gt_final_valid_idx"]
+        index_to_predict = inputs["track_index_to_predict"].squeeze(-1)
+
+        # Gather other agents' ground truth trajectories and masks
+        other_trajs = inputs["obj_trajs_future_state"]
+        other_trajs_mask = inputs["obj_trajs_future_mask"]
+
+        predicted_traj = trajectory_ouput.decoded_trajectories.value
+        predicted_prob = trajectory_ouput.mode_probabilities.value
+
+        batch_size, num_modes = predicted_prob.shape
+
+        # Calculate metrics
+        center_gt_final_valid_idx = center_gt_final_valid_idx.view(-1, 1, 1).repeat(1, num_modes, 1).to(torch.int64)
+        # average and final displacement errors between the predicted and ground-truth trajectories
+        ade, fde = metric_utils.compute_displacement_error(
+            predicted_traj[:, :, :, :2],
+            gt_traj[:, :, :, :2],
+            gt_traj_mask,
+            center_gt_final_valid_idx,
+        )
+        min_ade, _ = ade.min(axis=-1)
+        min_fde, best_fde_idx = fde.min(axis=-1)
+
+        # miss rate measues whether the final displacement is greater than a specified threshold
+        miss_rate_all_modes = metric_utils.compute_miss_rate(fde)
+        miss_rate_best_mode = metric_utils.compute_miss_rate(min_fde.unsqueeze(-1))
+
+        best_fde_predicted_prob = predicted_prob[torch.arange(batch_size), best_fde_idx]
+        brier_fde = min_fde + torch.square(1 - best_fde_predicted_prob)
+
+        # collision metrics if other agents' trajectories are available
+        collision_rate = metric_utils.compute_collision_rate(
+            predicted_traj[:, :, :, :2],
+            predicted_prob,
+            index_to_predict,
+            other_trajs[:, :, :, :2],
+            other_trajs_mask.bool(),
+            separate_by_thresholds=True,
+        )
+        collision_rate_best_mode = metric_utils.compute_collision_rate(
+            predicted_traj[:, best_fde_idx, :, :2],
+            predicted_prob,
+            index_to_predict,
+            other_trajs[:, :, :, :2],
+            other_trajs_mask.bool(),
+            only_best_mode=True,
+            separate_by_thresholds=True,
+        )
+
+        return {
+            "minADE6": min_ade.cpu().detach().numpy(),
+            "minFDE6": min_fde.cpu().detach().numpy(),
+            "missRate6": miss_rate_all_modes.cpu().detach().numpy(),
+            "missRate": miss_rate_best_mode.cpu().detach().numpy(),
+            "brierFDE": brier_fde.cpu().detach().numpy(),
+            **{f"collisionRate{threshold}": rate.cpu().detach().numpy() for threshold, rate in collision_rate.items()},
+            **{
+                f"collisionRateBestMode{threshold}": rate.cpu().detach().numpy()
+                for threshold, rate in collision_rate_best_mode.items()
+            },
+        }
+
+    @staticmethod
+    def _compute_causal_metrics(causal_output: CausalOutput) -> dict[str, npt.NDArray[np.float64]]:
+        """Computes causal metrics on model outputs.
+
+        Args:
+            causal_output: causal output from the model's forward pass.
+
+        Returns:
+            dict[str, npt.NDArray[np.float64]]: dictionary containing computed causal metrics
+        """
+        labels = causal_output.causal_gt.value
+        predictions = causal_output.causal_pred.value
+        tp, tn, fp, fn = metric_utils.compute_binary_confusion_matrix(predictions, labels)
+        precision, recall, f1_score = metric_utils.compute_accuracy(labels, predictions)
+        return {
+            "causalTP": tp.cpu().detach().numpy(),
+            "causalTN": tn.cpu().detach().numpy(),
+            "causalFP": fp.cpu().detach().numpy(),
+            "causalFN": fn.cpu().detach().numpy(),
+            "precision": precision.cpu().detach().numpy(),
+            "recall": recall.cpu().detach().numpy(),
+            "f1Score": f1_score.cpu().detach().numpy(),
+        }
+
+    @staticmethod
+    def _compute_safety_metrics(safety_output: SafetyOutput) -> dict[str, npt.NDArray[np.float64]]:
+        """Computes safety metrics on model outputs.
+
+        Args:
+            safety_output: safety output from the model's forward pass.
+
+        Returns:
+            dict[str, npt.NDArray[np.float64]]: dictionary containing computed safety metrics
+        """
+        indvidual_labels = safety_output.individual_safety_gt.value.squeeze(-1)
+        indvidual_predictions = safety_output.individual_safety_pred.value
+        num_classes = safety_output.individual_safety_pred_probs.value.shape[-1]
+        precision, recall, f1_score = metric_utils.compute_multiclass_accuracy(
+            indvidual_labels, indvidual_predictions, num_classes
+        )
+
+        interaction_labels = safety_output.interaction_safety_gt.value.squeeze(-1)
+        interaction_predictions = safety_output.interaction_safety_pred.value
+        num_classes = safety_output.interaction_safety_pred_probs.value.shape[-1]
+        precision, recall, f1_score = metric_utils.compute_multiclass_accuracy(
+            interaction_labels, interaction_predictions, num_classes
+        )
+
+        return {
+            "individualPrecision": precision.cpu().detach().numpy(),
+            "individualRecall": recall.cpu().detach().numpy(),
+            "individualF1Score": f1_score.cpu().detach().numpy(),
+            "interactionPrecision": precision.cpu().detach().numpy(),
+            "interactionRecall": recall.cpu().detach().numpy(),
+            "interactionF1Score": f1_score.cpu().detach().numpy(),
+        }
+
+    @staticmethod
+    def compute_metrics(inputs: dict[str, Any], outputs: ModelOutput) -> dict[str, npt.NDArray[np.float64]]:
         """Computes task metrics on model outputs.
 
         Args:
@@ -327,85 +469,25 @@ class BaseModel(LightningModule, ABC):
             outputs (ModelOutput): pydantic validator with model output information.
 
         Returns:
-            _type_: _description_
+            dict[str, npt.NDArray[np.float64]]: dictionary containing computed metrics.
         """
-        gt_traj = inputs["center_gt_trajs"].unsqueeze(1)  # .transpose(0, 1).unsqueeze(0)
-        gt_traj_mask = inputs["center_gt_trajs_mask"].unsqueeze(1)
-        center_gt_final_valid_idx = inputs["center_gt_final_valid_idx"]
-
         # Report trajectory metrics if trajectory outputs are available
         metric_dict = {}
-        trajectory_ouput = outputs.trajectory_decoder_output
-        if trajectory_ouput is not None:
-            predicted_traj = trajectory_ouput.decoded_trajectories.value
-            predicted_prob = trajectory_ouput.mode_probabilities.value
-
-            batch_size, num_modes = predicted_prob.shape
-
-            # Calculate metrics
-            center_gt_final_valid_idx = center_gt_final_valid_idx.view(-1, 1, 1).repeat(1, num_modes, 1).to(torch.int64)
-            # average and final displacement errors between the predicted and ground-truth trajectories
-            ade, fde = metric_utils.compute_displacement_error(
-                predicted_traj[:, :, :, :2],
-                gt_traj[:, :, :, :2],
-                gt_traj_mask,
-                center_gt_final_valid_idx,
-            )
-            min_ade, _ = ade.min(axis=-1)
-            min_fde, best_fde_idx = fde.min(axis=-1)
-
-            # miss rate measues whether the final displacement is greater than a specified threshold
-            miss_rate_all_modes = metric_utils.compute_miss_rate(fde)
-            miss_rate_best_mode = metric_utils.compute_miss_rate(min_fde.unsqueeze(-1))
-
-            predicted_prob = predicted_prob[torch.arange(batch_size), best_fde_idx]
-            brier_fde = min_fde + torch.square(1 - predicted_prob)
-
-            metric_dict = {
-                "minADE6": min_ade.cpu().detach().numpy(),
-                "minFDE6": min_fde.cpu().detach().numpy(),
-                "missRate6": miss_rate_all_modes.cpu().detach().numpy(),
-                "missRate": miss_rate_best_mode.cpu().detach().numpy(),
-                "brierFDE": brier_fde.cpu().detach().numpy(),
-            }
+        trajectory_output = outputs.trajectory_decoder_output
+        if trajectory_output is not None:
+            trajectory_metrics = BaseModel._compute_trajectory_metrics(inputs, trajectory_output)
+            metric_dict.update(trajectory_metrics)
 
         # Report causal metrics if causal outputs are available
         causal_output = outputs.causal_output
         if causal_output is not None:
-            labels = causal_output.causal_gt.value
-            predictions = causal_output.causal_pred.value
-            tp, tn, fp, fn = metric_utils.compute_binary_confusion_matrix(predictions, labels)
-            metric_dict["causalTP"] = tp.cpu().detach().numpy()
-            metric_dict["causalTN"] = tn.cpu().detach().numpy()
-            metric_dict["causalFP"] = fp.cpu().detach().numpy()
-            metric_dict["causalFN"] = fn.cpu().detach().numpy()
-
-            precision, recall, f1_score = metric_utils.compute_accuracy(labels, predictions)
-            metric_dict["precision"] = precision.cpu().detach().numpy()
-            metric_dict["recall"] = recall.cpu().detach().numpy()
-            metric_dict["f1Score"] = f1_score.cpu().detach().numpy()
+            causal_metrics = BaseModel._compute_causal_metrics(causal_output)
+            metric_dict.update(causal_metrics)
 
         safety_output = outputs.safety_output
         if safety_output is not None:
-            indvidual_labels = safety_output.individual_safety_gt.value.squeeze(-1)
-            indvidual_predictions = safety_output.individual_safety_pred.value
-            num_classes = safety_output.individual_safety_pred_probs.value.shape[-1]
-            precision, recall, f1_score = metric_utils.compute_multiclass_accuracy(
-                indvidual_labels, indvidual_predictions, num_classes
-            )
-            metric_dict["individualPrecision"] = precision.cpu().detach().numpy()
-            metric_dict["individualRecall"] = recall.cpu().detach().numpy()
-            metric_dict["individualF1Score"] = f1_score.cpu().detach().numpy()
-
-            interaction_labels = safety_output.interaction_safety_gt.value.squeeze(-1)
-            interaction_predictions = safety_output.interaction_safety_pred.value
-            num_classes = safety_output.interaction_safety_pred_probs.value.shape[-1]
-            precision, recall, f1_score = metric_utils.compute_multiclass_accuracy(
-                interaction_labels, interaction_predictions, num_classes
-            )
-            metric_dict["interactionPrecision"] = precision.cpu().detach().numpy()
-            metric_dict["interactionRecall"] = recall.cpu().detach().numpy()
-            metric_dict["interactionF1Score"] = f1_score.cpu().detach().numpy()
+            safety_metrics = BaseModel._compute_safety_metrics(safety_output)
+            metric_dict.update(safety_metrics)
 
         # TODO: review these metrics
         # If training a model with a scenario classification head, log perplexity and mutual information.
