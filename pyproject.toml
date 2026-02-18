@@ -49,11 +49,15 @@ dependencies = [
   # keep-sorted end
 ]
 
-
 [project.optional-dependencies]
 dev = [
   "pre-commit>=4.2.0",
   "pyright>=1.1.405",
+]
+
+[tool.uv]
+required-environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'"
 ]
 
 [tool.hatch.build.targets.sdist]
