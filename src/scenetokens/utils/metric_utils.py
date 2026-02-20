@@ -309,8 +309,7 @@ def compute_collision_rate(  # noqa: PLR0913
     others_gt_trajs_mask: torch.Tensor,
     collision_thresholds: list[float] = [0.1, 0.25, 0.5, 1.0],  # noqa: B006
     *,
-    only_best_mode: bool = False,
-    separate_by_thresholds: bool = False,
+    best_mode_only: bool = False,
 ) -> dict[str, torch.Tensor]:
     """Computes the collision rate between the predicted trajectory and other agents' trajectories.
 
@@ -328,14 +327,14 @@ def compute_collision_rate(  # noqa: PLR0913
         others_gt_trajs (torch.Tensor(B, N, T, D)): ground truth trajectories of other agents.
         others_gt_trajs_mask (torch.Tensor(B, N, T)): mask for valid trajectory points of other agents.
         collision_thresholds (list[float]): list of distance thresholds to consider a collision.
-        only_best_mode (bool): if True, only considers the best mode for collision calculation.
+        best_mode_only (bool): if True, only considers the best mode for collision calculation.
         separate_by_thresholds (bool): if True, returns a dictionary with collision rates for each threshold, otherwise
             returns a dictionary with a single key "collisionRateAllModes".
 
     Returns:
         collision_rate (dict[str, torch.Tensor]): dictionary containing the collision rate for each threshold.
     """
-    batch_size, num_modes, _, _ = ego_pred_traj.shape
+    batch_size, _, _, _ = ego_pred_traj.shape
 
     # Zero out the ego agent's trajectory in the others_gt_trajs tensor to avoid self-collision
     batch_indeces = torch.arange(batch_size, device=ego_pred_traj.device)
@@ -346,7 +345,7 @@ def compute_collision_rate(  # noqa: PLR0913
 
     # Compute pairwise distances between predicted trajectory and other agents' trajectories
     # distances shape: (B, M, N, T)
-    if only_best_mode:
+    if best_mode_only:
         best_mode_indices = torch.argmax(ego_pred_prob, dim=1)  # shape: (B,)
         ego_pred_traj = ego_pred_traj[batch_indeces, best_mode_indices]  # shape: (B, T, D)
         ego_pred_traj = ego_pred_traj.unsqueeze(1)  # shape: (B, 1, T, D)
@@ -357,19 +356,27 @@ def compute_collision_rate(  # noqa: PLR0913
     # Invalidate masked GT trajectory points
     distances = distances.masked_fill(~other_agents_masks[:, None, :, :], float("inf"))
 
+    # NOTE: vectorized approach causes kernel issues: AssertionError: CUDA error: device-side assert triggered
     # Check for collisions based on distance thresholds
-    thresholds = torch.tensor(collision_thresholds, device=ego_pred_traj.device).view(1, 1, 1, 1, -1)
-    # Calculate collision counts: shape (B, M, N, T, num_thresholds)
-    collision_counts = distances.unsqueeze(-1) < thresholds
-    # Collapse agents and time, each pair of predicted trajectory and other agent is considered a collision if any of
-    # the timesteps is a collision, we dont want to double count.
-    mode_collisions = collision_counts.any(dim=(2, 3))  # shape (B, M, num_thresholds)
-
+    # thresholds = torch.tensor(collision_thresholds, device=ego_pred_traj.device).view(1, 1, 1, 1, -1)
+    # # Calculate collision counts: shape (B, M, N, T, num_thresholds)
+    # collision_counts = distances.unsqueeze(-1) < thresholds
+    # # Collapse agents and time, each pair of predicted trajectory and other agent is considered a collision if any of
+    # # the timesteps is a collision, we dont want to double count.
+    # mode_collisions = collision_counts.any(dim=(2, 3))  # shape (B, M, num_thresholds)
     # Return a dictionary with the collision rate for each threshold
+    # collision_rate = {}
+    # if separate_by_thresholds:
+    #     for i, threshold in enumerate(collision_thresholds):
+    #         collision_rate[f"{threshold}"] = mode_collisions[:, :, i].float().mean(dim=1)
+    # else:
+    #     collision_rate = {"all": (mode_collisions.any(dim=-1)).float().mean(dim=1)}
+
     collision_rate = {}
-    if separate_by_thresholds:
-        for i, threshold in enumerate(collision_thresholds):
-            collision_rate[f"{threshold}"] = mode_collisions[:, :, i].float().mean(dim=1)
-    else:
-        collision_rate = {"all": (mode_collisions.any(dim=-1)).float().mean(dim=1)}
+    for threshold in collision_thresholds:
+        # Collision counts: shape (B, M, N, T)
+        collision_counts = distances < threshold
+        # Mode collisions: shape (B, M)
+        mode_collisions = collision_counts.any(dim=(2, 3))
+        collision_rate[f"{threshold}"] = mode_collisions.float().mean(dim=1)
     return collision_rate

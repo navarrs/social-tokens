@@ -327,13 +327,14 @@ class BaseModel(LightningModule, ABC):
 
     @staticmethod
     def _compute_trajectory_metrics(
-        inputs: dict[str, Any], trajectory_ouput: TrajectoryDecoderOutput
+        inputs: dict[str, Any], trajectory_ouput: TrajectoryDecoderOutput, status: str
     ) -> dict[str, npt.NDArray[np.float64]]:
         """Computes trajectory metrics on model outputs.
 
         Args:
             inputs (dict): dictionary containing input scenario information
             trajectory_ouput: trajectory decoder output from the model's forward pass.
+            status (str): status of the model (e.g., "train", "eval").
 
         Returns:
             dict[str, npt.NDArray[np.float64]]: dictionary containing computed trajectory metrics
@@ -371,37 +372,42 @@ class BaseModel(LightningModule, ABC):
         best_fde_predicted_prob = predicted_prob[torch.arange(batch_size), best_fde_idx]
         brier_fde = min_fde + torch.square(1 - best_fde_predicted_prob)
 
-        # collision metrics if other agents' trajectories are available
-        collision_rate = metric_utils.compute_collision_rate(
-            predicted_traj[:, :, :, :2],
-            predicted_prob,
-            index_to_predict,
-            other_trajs[:, :, :, :2],
-            other_trajs_mask.bool(),
-            separate_by_thresholds=True,
-        )
-        collision_rate_best_mode = metric_utils.compute_collision_rate(
-            predicted_traj[:, best_fde_idx, :, :2],
-            predicted_prob,
-            index_to_predict,
-            other_trajs[:, :, :, :2],
-            other_trajs_mask.bool(),
-            only_best_mode=True,
-            separate_by_thresholds=True,
-        )
-
-        return {
+        metrics = {
             "minADE6": min_ade.cpu().detach().numpy(),
             "minFDE6": min_fde.cpu().detach().numpy(),
             "missRate6": miss_rate_all_modes.cpu().detach().numpy(),
             "missRate": miss_rate_best_mode.cpu().detach().numpy(),
             "brierFDE": brier_fde.cpu().detach().numpy(),
-            **{f"collisionRate{threshold}": rate.cpu().detach().numpy() for threshold, rate in collision_rate.items()},
-            **{
-                f"collisionRateBestMode{threshold}": rate.cpu().detach().numpy()
-                for threshold, rate in collision_rate_best_mode.items()
-            },
         }
+
+        # NOTE: these metrics slow down training significantly, so will only be calculated during evaluation and if
+        # other agents' trajectories are available in the input data.
+        if status in ["val", "test"]:
+            collision_rate = metric_utils.compute_collision_rate(
+                predicted_traj[:, :, :, :2],
+                predicted_prob,
+                index_to_predict,
+                other_trajs[:, :, :, :2],
+                other_trajs_mask.bool(),
+            )
+            collision_rate_best_mode = metric_utils.compute_collision_rate(
+                predicted_traj[:, best_fde_idx, :, :2],
+                predicted_prob,
+                index_to_predict,
+                other_trajs[:, :, :, :2],
+                other_trajs_mask.bool(),
+                best_mode_only=True,
+            )
+            metrics.update(
+                {f"collisionRate{threshold}": rate.cpu().detach().numpy() for threshold, rate in collision_rate.items()}
+            )
+            metrics.update(
+                {
+                    f"collisionRateBestMode{threshold}": rate.cpu().detach().numpy()
+                    for threshold, rate in collision_rate_best_mode.items()
+                }
+            )
+        return metrics
 
     @staticmethod
     def _compute_causal_metrics(causal_output: CausalOutput) -> dict[str, npt.NDArray[np.float64]]:
@@ -461,12 +467,15 @@ class BaseModel(LightningModule, ABC):
         }
 
     @staticmethod
-    def compute_metrics(inputs: dict[str, Any], outputs: ModelOutput) -> dict[str, npt.NDArray[np.float64]]:
+    def compute_metrics(
+        inputs: dict[str, Any], outputs: ModelOutput, status: str
+    ) -> dict[str, npt.NDArray[np.float64]]:
         """Computes task metrics on model outputs.
 
         Args:
             inputs (dict): dictionary containing input scenario information
             outputs (ModelOutput): pydantic validator with model output information.
+            status (str): status of the model (e.g., "train", "eval").
 
         Returns:
             dict[str, npt.NDArray[np.float64]]: dictionary containing computed metrics.
@@ -475,7 +484,7 @@ class BaseModel(LightningModule, ABC):
         metric_dict = {}
         trajectory_output = outputs.trajectory_decoder_output
         if trajectory_output is not None:
-            trajectory_metrics = BaseModel._compute_trajectory_metrics(inputs, trajectory_output)
+            trajectory_metrics = BaseModel._compute_trajectory_metrics(inputs, trajectory_output, status)
             metric_dict.update(trajectory_metrics)
 
         # Report causal metrics if causal outputs are available
@@ -521,7 +530,7 @@ class BaseModel(LightningModule, ABC):
             status (str): whether the info is logged from training step or validation step.
         """
         # Split based on dataset
-        metric_dict = BaseModel.compute_metrics(inputs, outputs)
+        metric_dict = BaseModel.compute_metrics(inputs, outputs, status)
         metric_list = list(metric_dict.keys())
 
         # Separate the loss dictionary by sub-dataset name

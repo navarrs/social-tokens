@@ -582,7 +582,13 @@ def get_group_unique(
 
 
 def plot_heatmap(  # noqa: PLR0913
-    heatmap: npt.NDArray[np.float64], title: str, x_label: str, y_label: str, cbar_label: str, output_filepath: Path
+    heatmap: npt.NDArray[np.float64],
+    title: str,
+    x_label: str,
+    y_label: str,
+    cbar_label: str,
+    output_filepath: Path,
+    colormap: str = "viridis",
 ) -> None:
     """Visualizes a heatmap matrix.
 
@@ -592,11 +598,12 @@ def plot_heatmap(  # noqa: PLR0913
         x_label (str): the label of the x-axis.
         y_label (str): the label of the y-axis.
         cbar_label (str): the label of the heatmap's colorbar.
+        colormap (str): the colormap to use for the heatmap.
         output_filepath (Path): filepath to save the visualization.
     """
     plt.figure(figsize=(35, 30))
 
-    plt.imshow(heatmap, cmap="viridis", aspect="auto")
+    plt.imshow(heatmap, cmap=colormap, aspect="auto")
     cbar = plt.colorbar()
     cbar.ax.tick_params(labelsize=40)
     cbar.set_label(cbar_label, size=40)
@@ -606,6 +613,7 @@ def plot_heatmap(  # noqa: PLR0913
     plt.ylabel(y_label, fontsize=40)
     plt.xticks(range(heatmap.shape[0]))
     plt.yticks(range(heatmap.shape[1]))
+    plt.grid(visible=False)
 
     plt.tight_layout()
     plt.savefig(output_filepath)
@@ -678,6 +686,7 @@ def compute_token_consistency_matrix(
         y_label="Token Group",
         cbar_label="Average Consistency Index",
         output_filepath=output_path / f"token_consistency_matrix_{config.consistency_measure}.png",
+        colormap=config.token_consistency_colormap,
     )
 
     # Compute stats
@@ -786,6 +795,7 @@ def compute_group_uniqueness(
         y_label="Vocabulary",
         cbar_label="Uniqueness Index",
         output_filepath=output_path / f"group_uniqueness_counts_{config.normalize_counts}.png",
+        colormap=config.group_uniqueness_colormap,
     )
 
     # Save stats
@@ -867,6 +877,7 @@ def compute_intergroup_uniqueness(
         y_label="Group",
         cbar_label="Uniqueness Index",
         output_filepath=output_path / "intergroup_uniqueness.png",
+        colormap=config.intergroup_uniqueness_colormap,
     )
 
     # Compute stats

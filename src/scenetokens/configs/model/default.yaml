@@ -6,7 +6,7 @@ config:
   sample_selection: false
 
   # Training parameters
-  max_epochs: 150
+  max_epochs: 200
   train_batch_size: 64
   eval_batch_size: 64
   load_num_workers: 10 # number of workers for loading data

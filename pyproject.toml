@@ -55,11 +55,6 @@ dev = [
   "pyright>=1.1.405",
 ]
 
-[tool.uv]
-required-environments = [
-  "sys_platform == 'linux' and platform_machine == 'x86_64'"
-]
-
 [tool.hatch.build.targets.sdist]
 include = [
     "src/**",
@@ -148,6 +143,7 @@ exclude = [
     "src/scenetokens/utils/data_utils.py",
     "src/scenetokens/utils/scenario_visualizers/unitraj_viz_utils.py",
     "src/scenetokens/utils/scenario_visualizers/scenario_trajpred.py",
+    "src/scenetokens/utils/model_metric_analysis_utils.py",
     "src/scenetokens/models/components",
     "src/scenetokens/datasets/base_dataset.py",
     "src/scripts/waymo_data_processing.py",
@@ -183,6 +179,7 @@ exclude = [
   "src/scenetokens/models/components",
   "src/scenetokens/utils/data_utils.py",
   "src/scenetokens/utils/instantiators.py",
+  "src/scenetokens/utils/model_metric_analysis_utils.py",
   "src/scenetokens/utils/scenario_visualizers/scenario_trajpred.py",
   "src/scenetokens/utils/scenario_visualizers/unitraj_viz_utils.py",
   "src/scripts/causal_labels_pb2.py",
