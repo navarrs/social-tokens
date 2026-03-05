@@ -1,4 +1,4 @@
-"""Base dataset loader class for the Waymo Open Motion Dataset or ScenarioNet pre-processed data."""
+"""Base dataset loader class for the Trajectory Forecasting Datasets."""
 
 import json
 import os
@@ -13,27 +13,42 @@ from typing import Any
 import h5py
 import numpy as np
 import torch
+from characterization.features.safeshift_features import SafeShiftFeatures
+from characterization.schemas import (
+    AgentData,
+    Scenario,
+    ScenarioMetadata,
+    ScenarioScores,
+    StaticMapData,
+    TracksToPredict,
+)
+from characterization.scorer.safeshift_scorer import SafeShiftScorer
+from characterization.utils.common import AgentTrajectoryMasker, AgentType
+from characterization.utils.geometric_utils import find_closest_lanes, find_conflict_points
 from omegaconf import DictConfig
 from torch.utils.data import Dataset
 
-from scenetokens.utils import pylogger
-from scenetokens.utils import data_utils
+from scenetokens.utils import data_utils, pylogger
 from scenetokens.utils.constants import BIG_EPSILON, DataSplits, SampleSelection
-from characterization.features.safeshift_features import SafeShiftFeatures
-from characterization.scorer.safeshift_scorer import SafeShiftScorer
-from characterization.schemas import Scenario, AgentData, TracksToPredict, StaticMapData, ScenarioMetadata, ScenarioScores
-from characterization.utils.common import AgentType, AgentTrajectoryMasker
-from characterization.utils.geometric_utils import find_closest_lanes, find_conflict_points
 
 
 _LOGGER = pylogger.get_pylogger(__name__)
 
 
 class BaseDataset(Dataset, ABC):
-    """Base dataset loader class for trajectory datasets."""
+    """Base dataset loader class for trajectory datasets.
+
+    This class handles loading and processing of scenario data, including caching, multiprocessing, and transformation
+    into an agent-centric format. Subclasses should implement the `load_as_open_scenario` method to load scenarios in
+    their specific format.
+    """
 
     def __init__(self, config: DictConfig) -> None:
-        """Dataset constructor."""
+        """Dataset constructor.
+
+        Args:
+            config (DictConfig): Configuration object containing dataset parameters.
+        """
         super().__init__()
 
         self.split = config.split
@@ -91,16 +106,15 @@ class BaseDataset(Dataset, ABC):
             sample_selection_strategy = SampleSelection(self.config.sample_selection_strategy)
             if sample_selection_strategy != SampleSelection.ALL:
                 sample_selection_filepath = Path(self.config.sample_selection_filepath)
-                with sample_selection_filepath.open('r') as f:
+                with sample_selection_filepath.open("r") as f:
                     selected_samples = json.load(f)
-                    self.blacklist = selected_samples['drop']
-                    print(f"Removing {len(self.blacklist)} samples using {sample_selection_strategy}")
+                    self.blacklist = selected_samples["drop"]
+                    _LOGGER.info("Removing %s  samples using %s", len(self.blacklist), sample_selection_strategy)
             self.load_data()
 
     @abstractmethod
     def load_as_open_scenario(self, path: Path) -> Scenario:
         """Load the given path and return it as a Scenario object."""
-        pass
 
     def _get_dataset_summary(self, data_path: str) -> dict[str, str]:
         """Get a summary of filenames and paths for the pickle dataset.
@@ -111,30 +125,27 @@ class BaseDataset(Dataset, ABC):
         Returns:
             dict[str, str]: A dictionary mapping filenames to their full paths.
         """
-        mapping = {
-            filepath.name: str(filepath)
-            for filepath in Path(data_path).rglob("*.pkl")
-        }
-        _LOGGER.info(f"Got {len(mapping)} scenarios.")
+        mapping = {filepath.name: str(filepath) for filepath in Path(data_path).rglob("*.pkl")}
+        _LOGGER.info("Got %s scenarios.", len(mapping))
         return mapping
 
     def load_data(self) -> None:
         """Loads and processes scenario data into N chunks."""
-        print(f"Loading {self.split} data...")
+        _LOGGER.info("Loading %s data...", self.split)
         self.data_loaded = {}
         for data_path, data_tag in zip(self.data_path, self.data_tag, strict=False):
             # NOTE: self.subset_data_tag will be used in repack-scenario to add a subset tag to the scenario.
             self.subset_data_tag = data_tag
             self.cache_path = Path(self.config.cache_path, self.subset_data_tag)
-            print(f"Cache path {self.cache_path}")
+            _LOGGER.info("Cache path %s", self.cache_path)
 
             if self.config.use_cache or data_utils.is_ddp():
                 file_list = self.get_data_list()
             elif Path(self.cache_path).exists() and self.config.get("overwrite_cache", False) is False:
-                print(f"Warning: cache path {self.cache_path} already exists, skip ")
+                _LOGGER.warning("Cache path %s already exists, skip ", self.cache_path)
                 file_list = self.get_data_list()
             else:
-                print("Creating cache...")
+                _LOGGER.info("Creating cache...")
                 mapping = self._get_dataset_summary(data_path)
                 if self.cache_path.exists():
                     shutil.rmtree(self.cache_path)
@@ -142,22 +153,16 @@ class BaseDataset(Dataset, ABC):
 
                 cpu_count = os.cpu_count()
                 process_num = (
-                    cpu_count // 2 if (
-                        cpu_count is not None
-                        and cpu_count > 1
-                        and len(mapping) > cpu_count
-                        )
-                    else 1
+                    cpu_count // 2 if (cpu_count is not None and cpu_count > 1 and len(mapping) > cpu_count) else 1
                 )
-                print(f"Using {process_num} processes to load data...")
+                _LOGGER.info("Using %s processes to load data...", process_num)
 
                 summary_splits = np.array_split(list(mapping.keys()), process_num)
                 data_splits = [
-                    (data_path, mapping, filenames_split, self.subset_data_tag)
-                    for filenames_split in summary_splits
+                    (data_path, mapping, filenames_split, self.subset_data_tag) for filenames_split in summary_splits
                 ]
 
-                # save the data_splits in a tmp directory
+                # Save data_splits in a temporary directory.
                 Path(self.config.temp_path).mkdir(parents=True, exist_ok=True)
                 for i, data_split in enumerate(data_splits):
                     with Path(self.config.temp_path, f"{i}.pkl").open("wb") as f:
@@ -165,8 +170,7 @@ class BaseDataset(Dataset, ABC):
 
                 with Pool(processes=process_num) as pool:
                     results = pool.map(self.process_data_chunk, list(range(process_num)))
-
-                # concatenate the results
+                # Concatenate the results.
                 file_list = {}
                 for result in results:
                     file_list.update(result)
@@ -178,23 +182,23 @@ class BaseDataset(Dataset, ABC):
                 data_list = list(file_list.items())
                 np.random.shuffle(data_list)  # noqa: NPY002
                 if self.split == DataSplits.TRAINING:
-                    # randomly sample data_usage number of data
+                    # Randomly sample the configured number of scenarios.
                     file_list = dict(data_list[: self.num_data_to_consider])
 
             num_scenarios = len(file_list)
-            print(f"Loaded {num_scenarios} samples from {data_path}")
+            _LOGGER.info("Loaded %s samples from %s", num_scenarios, data_path)
 
             # Remove scenarios in specified blacklist. Needed for sample-selection experiments and to avoid creating a
             # different cache for each type of selection experiment.
             file_list_post_blacklist = {}
             for file_id, file_info in file_list.items():
-                if file_info['scenario_id'][0] in self.blacklist:
+                if file_info["scenario_id"][0] in self.blacklist:
                     continue
                 file_list_post_blacklist[file_id] = file_info
 
             num_scenarios_post_blacklist = len(file_list_post_blacklist)
             num_removed_scenarios = num_scenarios - num_scenarios_post_blacklist
-            print(f"Total instances: {num_scenarios_post_blacklist} (removed: {num_removed_scenarios})")
+            _LOGGER.info("Total instances: %s (removed: %s)", num_scenarios_post_blacklist, num_removed_scenarios)
             if not num_scenarios_post_blacklist:
                 err_msg = "No scenarios left after applying blacklist"
                 raise RuntimeError(err_msg)
@@ -202,18 +206,25 @@ class BaseDataset(Dataset, ABC):
             self.data_loaded.update(file_list_post_blacklist)
 
             if self.config.store_data_in_memory:
-                print("Loading data into memory...")
+                _LOGGER.info("Loading data into memory...")
                 for data_filepath in file_list_post_blacklist:
                     with Path(data_filepath).open("rb") as f:
                         data = pickle.load(f)
                     self.data_loaded_memory.append(data)
-                print(f"Loaded {len(self.data_loaded_memory)} data into memory")
+                _LOGGER.info("Loaded %s data into memory", len(self.data_loaded_memory))
 
         self.data_loaded_keys = list(self.data_loaded.keys())
-        print("Data loaded")
+        _LOGGER.info("Data loaded")
 
     def process_data_chunk(self, worker_index: int) -> dict[str, dict[str, Any]]:
-        """Processes scenario data for a given chunk index."""
+        """Processes scenario data for a given chunk index.
+
+        Args:
+            worker_index (int): The index of the worker process for which to process the data chunk.
+
+        Returns:
+            dict[str, dict[str, Any]]: A dictionary containing the processed scenario data.
+        """
         with Path(self.config.temp_path, f"{worker_index}.pkl").open("rb") as f:
             data_path, mapping, data_list, dataset_name = pickle.load(f)
 
@@ -223,7 +234,7 @@ class BaseDataset(Dataset, ABC):
         with h5py.File(hdf5_path, "w") as f:
             for cnt, filename in enumerate(data_list):
                 if worker_index == 0 and cnt % max(int(len(data_list) / 10), 1) == 0:
-                    print(f"{cnt}/{len(data_list)} data processed", flush=True)
+                    _LOGGER.info("%s/%s data processed", cnt, len(data_list))
 
                 output = self.load_and_process_scenario(Path(mapping[filename]))
                 if output is None:
@@ -274,7 +285,8 @@ class BaseDataset(Dataset, ABC):
             )
             conflict_points = (
                 None
-                if conflict_points_info["all_conflict_points"] is None else conflict_points_info["all_conflict_points"]
+                if conflict_points_info["all_conflict_points"] is None
+                else conflict_points_info["all_conflict_points"]
             )
             scenario.static_map_data.map_conflict_points = conflict_points
             scenario.static_map_data.agent_distances_to_conflict_points = agent_distances_to_conflict_points
@@ -292,11 +304,18 @@ class BaseDataset(Dataset, ABC):
 
         return scenario
 
-
     def load_and_process_scenario(self, path: Path) -> list[dict[str, Any]] | None:
-        """Process a scenario into an agent-centric format."""
+        """Process a scenario into an agent-centric format.
+
+        Args:
+            path (Path): The file path to the scenario data to be loaded and processed.
+
+        Returns:
+            list[dict[str, Any]] | None: A list of dictionaries containing the processed scenario data in agent-centric
+                format, or None if processing fails.
+        """
         scenario = self.load_as_open_scenario(path)
-        # TODO: resolve bare except from Unitraj.W
+        # TODO: Resolve bare except from UniTraj.
         try:
             scenario_scores = None
             if self.autolabel_agents:
@@ -305,21 +324,21 @@ class BaseDataset(Dataset, ABC):
                 scenario_scores = self.scenario_scores_processor.compute(scenario, scenario_features)
 
             # Process intermediate format into final format.
-            # NOTE: currently, this is Unitraj's scenario representation. It returns a dictionary not a schema as above.
+            # NOTE: Currently, this is UniTraj's scenario representation. It returns a dictionary, not a schema.
             ac_scenario = self.process_agent_centric_scenario(scenario, scenario_scores=scenario_scores)
             if ac_scenario is not None:
-                # Compute Unitraj's characterizations: Kalman Difficulty and Trajectory Type features.
-                # NOTE: Currently, they're derived from the agent-centric scenario representation. Later on they'll get
-                # moved to ScenarioCharacterization.
+                # Compute UniTraj's characterizations: Kalman Difficulty and Trajectory Type features.
+                # NOTE: Currently, these are derived from the agent-centric scenario representation. Later, they will
+                # be moved to ScenarioCharacterization.
                 ac_scenario = self.characterize_scenario(ac_scenario)
 
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.exception("error processing scenario: %s", path)
             ac_scenario = None
         return ac_scenario
 
     def get_data_list(self) -> dict[str, Any]:
-        """Gets the list of data if data has already been peprocessed into a file_list cache."""
+        """Get the data list if it has already been preprocessed into a file_list cache."""
         filelist_cache = Path(self.cache_path, self.file_list)
         if filelist_cache.exists():
             data_loaded = pickle.load(filelist_cache.open("rb"))
@@ -331,13 +350,18 @@ class BaseDataset(Dataset, ABC):
         np.random.shuffle(data_list)  # noqa: NPY002
         return dict(data_list[: self.num_data_to_consider])
 
-    def process_agent_centric_scenario(self, scenario: Scenario, scenario_scores: ScenarioScores | None = None) -> list[dict[str, Any]] | None:
+    def process_agent_centric_scenario(
+        self, scenario: Scenario, scenario_scores: ScenarioScores | None = None
+    ) -> list[dict[str, Any]] | None:
         """Processes a scenario from an internal format into an agent-centric format.
 
         Args:
             scenario (Scenario): The input scenario in internal format to be transformed into agent-centric format.
             scenario_scores (ScenarioScores | None): optional scenario scores to be added to the agent-centric format.
 
+        Returns:
+            list[dict[str, Any]] | None: A list of dictionaries containing the processed scenario data in agent-centric
+                format, or None if processing fails.
         """
         agent_data = scenario.agent_data
         tracks_to_predict = scenario.tracks_to_predict
@@ -374,9 +398,9 @@ class BaseDataset(Dataset, ABC):
         )
         ret_dict.update(map_dict)
 
-        # Masking out unused attributes to zero
+        # Mask out unused attributes.
         BaseDataset._mask_out_attributes(ret_dict, self.config.masked_attributes)
-        # Cast np.ndarrays
+        # Cast NumPy arrays.
         BaseDataset._cast_dictionary(ret_dict)
 
         # Propagate the dataset name to each of the centered scenarios
@@ -395,6 +419,12 @@ class BaseDataset(Dataset, ABC):
 
     @staticmethod
     def _mask_out_attributes(scenario_dict: dict, attributes_to_mask: list[str]) -> None:
+        """Masks out specified attributes in the scenario dictionary by setting them to zero.
+
+        Args:
+            scenario_dict (dict): The dictionary containing scenario data, which will be modified in-place.
+            attributes_to_mask (list[str]): A list of attribute names to be masked out in the scenario dictionary.
+        """
         if "z_axis" in attributes_to_mask:
             scenario_dict["obj_trajs"][..., 2] = 0
             scenario_dict["map_polylines"][..., 2] = 0
@@ -411,27 +441,35 @@ class BaseDataset(Dataset, ABC):
     def _cast_dictionary(
         scenario_dict: dict, from_dtype: np.dtype = np.float64, to_dtype: np.dtype = np.float32
     ) -> None:
+        """Casts all NumPy arrays in the scenario dictionary from one data type to another in-place.
+
+        Args:
+            scenario_dict (dict): The dictionary containing scenario data, which will be modified in-place.
+            from_dtype (np.dtype): The original data type of the arrays.
+            to_dtype (np.dtype): The target data type of the arrays.
+        """
         for k, v in scenario_dict.items():
             if isinstance(v, np.ndarray) and v.dtype == from_dtype:
                 scenario_dict[k] = v.astype(to_dtype)
 
     def get_agents_of_interest_center_points(
-        self, agent_data: AgentData,
-        tracks_to_predict: TracksToPredict | None,
-        metadata: ScenarioMetadata
+        self, agent_data: AgentData, tracks_to_predict: TracksToPredict | None, metadata: ScenarioMetadata
     ) -> tuple[np.ndarray | None, np.ndarray | list]:
-        """Gets the centerpoints of the agents of interest in the scenario
+        """Get center points for agents of interest in the scenario.
+
+        Notation:
             N: number of agents
             D: agent attributes
 
         Args:
-            agent_data (AgentData): object containing agent trajectory data obtained in 'self.preprocess_scenario()'.
-            tracks_to_predict (TracksToPredict): the object containing the tracks in agent_data which will be predicted.
-            metadata (ScenarioMetadata): object containing the scenario metadata.
+            agent_data (AgentData): Object containing agent trajectory data obtained in
+                `self.preprocess_scenario()`.
+            tracks_to_predict (TracksToPredict | None): Object containing tracks in `agent_data` to predict.
+            metadata (ScenarioMetadata): Object containing scenario metadata.
 
         Returns:
-            agent_centerpoints (np.ndarray[N, D]): a numpy array containing the N agents of interest centerpoints.
-            agent_idxs (np.ndarray(N)): a numpy array containing the indeces of the N agents of interest.
+            agent_centerpoints (np.ndarray[N, D]): NumPy array with center points for agents of interest.
+            agent_idxs (np.ndarray[N]): NumPy array with indices of agents of interest.
         """
         if not tracks_to_predict:
             return None, []
@@ -450,7 +488,7 @@ class BaseDataset(Dataset, ABC):
         for agent_idx in agents_to_predict_idxs:
             # Check if the agent of interest is valid at the last observation index.
             if not agent_valid[agent_idx, self.current_time_idx]:
-                print(f"Warning: agent={agent_idx} of scene={scenario_id}is not valid at time {self.current_time_idx}")
+                print(f"Warning: agent={agent_idx} of scene={scenario_id} is not valid at time {self.current_time_idx}")
                 continue
             # Check if the agent type is in the expected training types.
             if agents_types[agent_idx] not in selected_type:
@@ -473,7 +511,24 @@ class BaseDataset(Dataset, ABC):
         metadata: ScenarioMetadata,
         scenario_scores: ScenarioScores | None = None,
     ) -> dict[str, Any]:
-        """Computes the agent-centric data."""
+        """Computes the agent-centric data.
+
+        Notation:
+            C: number of center objects (agents of interest)
+            N: number of agents
+            T: number of timesteps
+            Dpost: number of attributes in the centered agent trajectories after processing
+
+        Args:
+            agent_data (AgentData): Object containing agent trajectory data obtained in `self.preprocess_scenario()`.
+            center_objects (np.ndarray): NumPy array containing the center points of the agents of interest.
+            track_index_to_predict (np.ndarray): NumPy array containing the indices of the agents of interest.
+            metadata (ScenarioMetadata): Object containing scenario metadata.
+            scenario_scores (ScenarioScores | None): optional scenario scores to be added to the agent-centric format.
+
+        Returns:
+            dict[str, Any]: A dictionary containing the processed agent-centric data for the scenario.
+        """
         # Transform the agent trajectories
         center_points = AgentTrajectoryMasker(center_objects)
 
@@ -521,7 +576,7 @@ class BaseDataset(Dataset, ABC):
             [
                 centered_histories.agent_xyz_pos,  # P=(x, y, z)
                 centered_histories.agent_dims,  # D=(length, width, height)
-                agents_onehot_type_mask,  # O=one hot vector of dim=5
+                agents_onehot_type_mask,  # O=one-hot vector of dim=5
                 agents_time_embeddings,  # Te=history embedding of dim hist-timesteps+1
                 agent_heading_embedding,  # He=heading embedding of dim=2
                 centered_histories.agent_xy_vel,  # V=(vx, vy)
@@ -592,7 +647,7 @@ class BaseDataset(Dataset, ABC):
         agent_futures_mask = np.take_along_axis(agent_futures_mask, topk_idxs[..., 0], axis=1)
         track_index_to_predict_new = np.zeros(len(track_index_to_predict), dtype=np.int64)
 
-        # Pad the information if scene has less agents than the maximum
+        # Pad information if the scene has fewer agents than the maximum.
         size_to_pad = max_num_agents - agent_histories_pos.shape[1]
         agent_ids = np.pad(agent_ids, ((0, 0), (0, size_to_pad), (0, 0), (0, 0)), constant_values=-1)
         agent_histories = np.pad(agent_histories, ((0, 0), (0, size_to_pad), (0, 0), (0, 0)))
@@ -607,13 +662,13 @@ class BaseDataset(Dataset, ABC):
         interaction_agent_scores, interaction_scene_scores = None, None
         if scenario_scores is not None:
             # Get valid agent scores
-            individual_agent_scores = scenario_scores.individual_scores.agent_scores[valid_past_mask] # pyright: ignore[reportOptionalSubscript]
-            individual_agent_scores_valid = scenario_scores.individual_scores.agent_scores_valid[valid_past_mask] # pyright: ignore[reportOptionalSubscript]
+            individual_agent_scores = scenario_scores.individual_scores.agent_scores[valid_past_mask]  # pyright: ignore[reportOptionalSubscript]
+            individual_agent_scores_valid = scenario_scores.individual_scores.agent_scores_valid[valid_past_mask]  # pyright: ignore[reportOptionalSubscript]
             individual_agent_scores[~individual_agent_scores_valid] = 0
             individual_agent_scores = np.tile(individual_agent_scores[None, :], (num_center_points, 1))
 
-            interaction_agent_scores = scenario_scores.interaction_scores.agent_scores[valid_past_mask] # pyright: ignore[reportOptionalSubscript]
-            interaction_agent_scores_valid = scenario_scores.interaction_scores.agent_scores_valid[valid_past_mask] # pyright: ignore[reportOptionalSubscript]
+            interaction_agent_scores = scenario_scores.interaction_scores.agent_scores[valid_past_mask]  # pyright: ignore[reportOptionalSubscript]
+            interaction_agent_scores_valid = scenario_scores.interaction_scores.agent_scores_valid[valid_past_mask]  # pyright: ignore[reportOptionalSubscript]
             interaction_agent_scores[~interaction_agent_scores_valid] = 0
             interaction_agent_scores = np.tile(interaction_agent_scores[None, :], (num_center_points, 1))
 
@@ -621,7 +676,7 @@ class BaseDataset(Dataset, ABC):
             individual_agent_scores = np.take_along_axis(individual_agent_scores[..., None, None], topk_idxs, axis=1)
             interaction_agent_scores = np.take_along_axis(interaction_agent_scores[..., None, None], topk_idxs, axis=1)
 
-            # Pad the scores if scene has less agents than the maximum
+            # Pad the scores if the scene has fewer agents than the maximum.
             individual_agent_scores = np.pad(individual_agent_scores, ((0, 0), (0, size_to_pad), (0, 0), (0, 0)))
             interaction_agent_scores = np.pad(interaction_agent_scores, ((0, 0), (0, size_to_pad), (0, 0), (0, 0)))
 
@@ -652,15 +707,20 @@ class BaseDataset(Dataset, ABC):
     def transform_trajectories_wrt_center_points(
         agent_tracks: AgentTrajectoryMasker, center_points: AgentTrajectoryMasker
     ) -> AgentTrajectoryMasker:
-        """Transforms trajectories w.r.t a center point.
-            C: number of centerpoints, N: number of agents, T: number of timesteps, D: number of features
+        """Transform trajectories with respect to center points.
+
+        Notation:
+            C: number of center points
+            N: number of agents
+            T: number of timesteps
+            D: number of features
 
         Args:
-            agent_tracks (AgentTrajectoryMasker): object containing agent track information.
-            center_points (AgentTrajectoryMasker): object containing center points track information.
+            agent_tracks (AgentTrajectoryMasker): Object containing agent track information.
+            center_points (AgentTrajectoryMasker): Object containing center-point track information.
 
         Returns:
-            centered_trajectories (AgentTrajectoryMasker): object containing the transformed track information.
+            AgentTrajectoryMasker: Object containing transformed track information.
         """
         trajectories = agent_tracks.agent_trajectories
         num_objects, num_timestamps, _ = trajectories.shape
@@ -694,8 +754,24 @@ class BaseDataset(Dataset, ABC):
         return AgentTrajectoryMasker(trajectories)
 
     @staticmethod
-    def transform_polylines_wrt_center_points(polylines: np.ndarray, center_points: AgentTrajectoryMasker) -> np.ndarray:
-        """Transforms map polylines w.r.t a center points."""
+    def transform_polylines_wrt_center_points(
+        polylines: np.ndarray, center_points: AgentTrajectoryMasker
+    ) -> np.ndarray:
+        """Transform map polylines with respect to center points.
+
+        Notation:
+            C: number of center points
+            P: number of polylines
+            M: max number of segments per polyline
+            D: number of features
+
+        Args:
+            polylines (np.ndarray): NumPy array containing map polyline information of shape (C, P, M, D)
+            center_points (AgentTrajectoryMasker): Object containing center-point track information.
+
+        Returns:
+            np.ndarray: Transformed map polyline information of shape (C, P, M, D).
+        """
         center_position = center_points.agent_xyz_pos
         center_heading = center_points.agent_headings
 
@@ -707,7 +783,9 @@ class BaseDataset(Dataset, ABC):
     def get_centered_map_data(
         self, map_data: StaticMapData, center_objects: np.ndarray, metadata: ScenarioMetadata
     ) -> dict[str, np.ndarray]:
-        """Gets the map information centered w.r.t. the center agents.
+        """Get map information centered with respect to center agents.
+
+        Notation:
             C: number of center agents
             P: number of polylines
             M: max number of segments
@@ -717,15 +795,15 @@ class BaseDataset(Dataset, ABC):
             Dm: map output dimension
 
         Args:
-            map_data (StaticMapData): object containing all map information.
-            center_objects (np.ndarray(C, Dt)): a numpy array containing center points.
-            metadata: (ScenarioMetadata): object containing the scenario's metadata.
+            map_data (StaticMapData): Object containing all map information.
+            center_objects (np.ndarray(C, Dt)): NumPy array containing center points.
+            metadata (ScenarioMetadata): Object containing scenario metadata.
 
-        Return:
-            map_data_dict (dict): a dictionary contatining the centered map information:
-                map_polylines (np.ndarray(C, M, N, Dm)): the centered map information.
-                map_polylines_mask (np.ndarray(C, M, N)): the centered map's mask information.
-                map_polylines_center (np.ndarray(C, M, N, 3)): the maps center xyz positions.
+        Returns:
+            map_data_dict (dict): Dictionary containing centered map information:
+                map_polylines (np.ndarray(C, M, N, Dm)): Centered map information.
+                map_polylines_mask (np.ndarray(C, M, N)): Centered map mask information.
+                map_polylines_center (np.ndarray(C, M, 3)): Map center XYZ positions.
         """
         if len(map_data.map_polylines) == 0:
             print(f"Warning: empty HDMap {metadata.scenario_id}")
@@ -803,13 +881,13 @@ class BaseDataset(Dataset, ABC):
         xy_pos_pre = np.roll(xy_pos_pre, shift=1, axis=-2)
         xy_pos_pre[:, :, 0, :] = xy_pos_pre[:, :, 1, :]
 
-        # Get one hot encoding for map_types
+        # Get one-hot encoding for map types.
         map_types = map_polylines[:, :, :, -1]
         map_types = np.eye(self.config.total_map_types)[map_types.astype(int)]
 
         map_polylines = map_polylines[:, :, :, :-1]
 
-        # map_polylines shape: (C, N, M, )
+        # map_polylines shape: (C, N, M, Dm)
         map_polylines = np.concatenate((map_polylines, xy_pos_pre, map_types), axis=-1)
         map_polylines[map_polylines_mask == 0] = 0
         return {
@@ -820,13 +898,18 @@ class BaseDataset(Dataset, ABC):
 
     def get_valid_segments(self, polyline_segment: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Gets the valid segments within a polyline segment.
-            C: number of center agents, P: number of polylines, D: dimension of each polyline.
-            M: max number of segments N: max number of points per segment
+
+        Notation:
+            C: number of center agents
+            P: number of polylines
+            D: dimension of each polyline.
+            M: max number of segments
+            N: max number of points per segment
 
         Args:
             polyline_segment (np.ndarray(C, P, D)): a numpy array containing all polylines that make a segment.
 
-        Return:
+        Returns:
             segments (np.ndarray(C, M, N, D)): a numpy array containing the valid segments within the input array.
             segments_mask (np.ndarray(C, M, N)): a numpy array containing the segment mask.
         """
@@ -856,7 +939,7 @@ class BaseDataset(Dataset, ABC):
             for num, seg_index in enumerate(segment_index_list[i]):
                 segment = segment_i[seg_index]
                 segment_size = segment.shape[0]
-                # If there are more points than the maximum allowed, select indeces using linspace.
+                # If there are more points than the maximum allowed, select indices using linspace.
                 if segment_size > max_points:
                     segments[i, num] = segment[np.linspace(0, segment_size - 1, max_points, dtype=int)]
                     segments_mask[i, num] = 1
@@ -867,7 +950,18 @@ class BaseDataset(Dataset, ABC):
         return segments, segments_mask
 
     def characterize_scenario(self, output: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        # TODO: add safeshift features here
+        """Add scenario characterization information to the output dictionary.
+
+        Args:
+            output (list[dict[str, Any]]): list of dictionaries containing scenario information for each scenario in
+                the batch.
+
+        Returns:
+            output (list[dict[str, Any]]): list of dictionaries containing scenario information for each scenario in
+                the batch, with added scenario characterization information.
+        """
+
+        # TODO: Add SafeShift features here.
         # Add the trajectory difficulty
         data_utils.get_kalman_difficulty(output)
         # Add the trajectory type (stationary, straight, right turn...)
@@ -878,7 +972,7 @@ class BaseDataset(Dataset, ABC):
             causal_labels_filepath = Path(f"{self.config.causal_labels_path}/{scenario_id}.json")
             # Assume all agents are causal if no causal file is given
             agent_ids = out["obj_ids"].squeeze(-1).squeeze(-1)
-            causal_idxs = np.ones_like(agent_ids)
+            causal_idxs = np.zeros_like(agent_ids)
             if causal_labels_filepath.exists():
                 with causal_labels_filepath.open("r") as f:
                     causal_labels = json.load(f)
@@ -890,6 +984,9 @@ class BaseDataset(Dataset, ABC):
                     causal_idxs = np.isin(agent_ids, causal_ids)
                     causal_idxs[out["track_index_to_predict"]] = True
                 # out['causal_ids_votes'] = np.array(causal_labels['labeler_votes'], dtype=int)
+            else:
+                print(f"Warning: causal labels file not found for scenario {scenario_id}")
+                causal_idxs[out["track_index_to_predict"]] = True
 
             # Mask out padded agents and/or agents with invalid histories (i.e., full mask is False)
             invalid_hists = out["obj_trajs_mask"].sum(axis=1) == 0
@@ -898,10 +995,10 @@ class BaseDataset(Dataset, ABC):
         return output
 
     def collate_fn(self, data_list: list) -> dict:
-        """_summary_
+        """Collate a list of scenario samples into a batch dictionary.
 
         Args:
-            data_list (list): _description_
+            data_list (list): List of per-sample dictionaries.
 
         Returns:
             batch (dict): dictionary containing batch information as follows:
@@ -949,7 +1046,7 @@ class BaseDataset(Dataset, ABC):
 
         input_dict = {}
         for key, val_list in key_to_list.items():
-            # TODO: handle bare exception
+            # TODO: Handle bare exception.
             try:
                 input_dict[key] = torch.from_numpy(np.stack(val_list, axis=0))
             except:  # noqa: E722
@@ -959,13 +1056,27 @@ class BaseDataset(Dataset, ABC):
         return {"batch_size": batch_size, "input_dict": input_dict, "batch_sample_count": batch_size}
 
     def __len__(self) -> int:
+        """Returns the number of samples in the dataset, which is equal to the number of loaded data keys."""
         return len(self.data_loaded_keys)
 
     @cache  # noqa: B019
-    def _get_file(self, file_path: str):  # noqa: ANN202
+    def _get_file(self, file_path: str) -> h5py.File:
+        """Gets the file object for a given file path, using caching to avoid reopening files.
+
+        Args:
+            file_path (h5py.File): path to the file to open.
+        """
         return h5py.File(file_path, "r")
 
-    def __getitem__(self, idx: int) -> dict:
+    def __getitem__(self, idx: int) -> dict[str, Any]:
+        """Gets the data for a given index.
+
+        Args:
+            idx (int): index of the data to retrieve.
+
+        Returns:
+            dict[str, Any]: dictionary containing the data for the given index.
+        """
         file_key = self.data_loaded_keys[idx]
         file_info = self.data_loaded[file_key]
         file_path = file_info["h5_path"]
@@ -977,6 +1088,7 @@ class BaseDataset(Dataset, ABC):
         return {k: group[k][()].decode("utf-8") if group[k].dtype.type == np.bytes_ else group[k][()] for k in group}
 
     def close_files(self) -> None:
+        """Closes all open files in the file cache."""
         for f in self.file_cache.values():
             f.close()
         self.file_cache.clear()
