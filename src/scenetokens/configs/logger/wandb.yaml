@@ -4,7 +4,7 @@ wandb:
   save_dir: "${paths.output_dir}/wandb/"
 
   # Team, project and experiment name
-  entity: null # set to name of your wandb team
+  entity: "traj-" # set to name of your wandb team
   project: "scenetokens"
   name: "${exp_name}"
 

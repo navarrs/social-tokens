@@ -17,8 +17,8 @@ Options:
                     (default: random_drop, token_random_drop, simple_token_jaccard_drop, gumbel_token_jaccard_drop, simple_token_hamming_drop, gumbel_token_hamming_drop)
   -p <percentages>  Percentage(s), comma-separated
                     (default: 0.45, 0.55, 0.65, 0.75, 0.85, 0.95)
-  -f <path>         Sample selection path
-                    (default: ./meta/scenetokens_strategies)
+  -t <type>         Type of sample selection strategy (either of "st", "causalst", "safest")
+                    (default: "st")
   -n                Dry run (print commands, do not execute)
   -h                Show this help message
 
@@ -38,8 +38,8 @@ Examples:
   # Custom percentages
   $0 -p 0.5,0.7,0.9
 
-  # Custom sample selection path
-  $0 -f ./custom_strategies
+  # Custom sample selection type
+  $0 -t "st"
 
   # Dry run to preview commands
   $0 -m scenetokens -n
@@ -60,7 +60,7 @@ DEFAULT_MODELS=(
 )
 DEFAULT_DEVICES="0"
 DEFAULT_STRATEGIES=(
-#   random_drop
+  random_drop
   token_random_drop
   simple_token_jaccard_drop
   simple_token_hamming_drop
@@ -68,8 +68,8 @@ DEFAULT_STRATEGIES=(
   gumbel_token_hamming_drop
 )
 DEFAULT_PERCENTAGES=(0.45 0.55 0.65 0.75 0.85 0.95)
-DEFAULT_SAMPLE_SELECTION_PATH="./meta/scenetokens_strategies"
-
+DEFAULT_SAMPLE_SELECTION_TYPE="st"
+DEFAULT_SAMPLE_SELECTION_PATH="./meta/selection_strategies/scenetokens"
 dry_run=false
 
 ############################
@@ -79,17 +79,15 @@ models=()
 devices="$DEFAULT_DEVICES"
 strategies=()
 percentages=()
-selection_path="$DEFAULT_SAMPLE_SELECTION_PATH"
-extra=""
+selection_type="$DEFAULT_SAMPLE_SELECTION_TYPE"
 
-while getopts ":m:d:s:p:f:e:nh" opt; do
+while getopts ":m:d:s:p:t:nh" opt; do
     case $opt in
         m) IFS=',' read -ra models <<< "$OPTARG" ;;
         d) devices="$OPTARG" ;;
         s) IFS=',' read -ra strategies <<< "$OPTARG" ;;
         p) IFS=',' read -ra percentages <<< "$OPTARG" ;;
-        f) selection_path="$OPTARG" ;;
-        e) extra="$OPTARG" ;;
+        t) selection_type="$OPTARG" ;;
         n) dry_run=true ;;
         h) usage ;;
         \?) echo "Invalid option: -$OPTARG" >&2; usage ;;
@@ -97,12 +95,24 @@ while getopts ":m:d:s:p:f:e:nh" opt; do
     esac
 done
 
+
+
 ############################
 # Apply defaults if empty
 ############################
 [[ ${#models[@]} -eq 0 ]] && models=("${DEFAULT_MODELS[@]}")
 [[ ${#strategies[@]} -eq 0 ]] && strategies=("${DEFAULT_STRATEGIES[@]}")
 [[ ${#percentages[@]} -eq 0 ]] && percentages=("${DEFAULT_PERCENTAGES[@]}")
+if [[ "$selection_type" == "st" ]]; then
+    selection_path="./meta/selection_strategies/scenetokens"
+elif [[ "$selection_type" == "causalst" ]]; then
+    selection_path="./meta/selection_strategies/causal-scenetokens"
+elif [[ "$selection_type" == "safest" ]]; then
+    selection_path="./meta/selection_strategies/safe-scenetokens"
+else
+    echo "Error: selection_type must be one of 'st', 'causalst', or 'safest', got '$selection_type'" >&2
+    exit 1
+fi
 
 ############################
 # Run experiments
@@ -110,7 +120,7 @@ done
 for model in "${models[@]}"; do
     for strategy in "${strategies[@]}"; do
         for pct in "${percentages[@]}"; do
-            sweep_type="_${strategy}_${pct}_${extra}"
+            sweep_type="_${strategy}_${pct}_${selection_type}"
 
             cmd=(
                 uv run -m scenetokens.train

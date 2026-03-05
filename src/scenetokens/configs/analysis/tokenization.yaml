@@ -10,15 +10,18 @@ best_mode_only: true # if true, it only considers the token from the 'best' pred
 rank_by_probability: true # if true and 'best_mode_only: false', it will rank the tokens based on the mode probability.
 
 # Token consistency analysis
-run_token_consistency_analysis: false
-consistency_measure: hamming # either of 'jaccard' or 'hamming'
+run_token_consistency_analysis: true
+consistency_measure: jaccard # either of 'jaccard' or 'hamming'
+token_consistency_colormap: 'nipy_spectral' # colormap to use for the token consistency heatmap visualization
 
 # Group uniqueness analysis
 run_group_uniqueness_analysis: false
-normalize_counts: 'group_scenarios' # either of 'all_scenarios' or 'group_scenarios' or 'none'
+normalize_counts: 'none' # either of 'all_scenarios' or 'group_scenarios' or 'none'
+group_uniqueness_colormap: 'nipy_spectral' # colormap to use for the group uniqueness heatmap visualization
 
 # Inter-group uniqueness
-run_intergroup_analysis: false
+run_intergroup_analysis: true
+intergroup_uniqueness_colormap: 'nipy_spectral' # colormap to use for the inter-group uniqueness heatmap visualizations
 
 # Produces a visualization of the scenario embeddings using dimensionality reduction methods.
 run_dim_reduction_analysis: false

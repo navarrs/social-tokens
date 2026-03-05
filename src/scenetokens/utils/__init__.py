@@ -18,10 +18,10 @@ from scenetokens.utils.model_analysis_utils import (
     read_score_analysis,
 )
 from scenetokens.utils.model_metric_analysis_utils import (
-    model_to_model_analysis,
     plot_sample_selection_sweep_heatmap,
     plot_sample_selection_sweep_lineplot,
     run_benchmark_analysis,
+    run_comparative_analysis,
 )
 from scenetokens.utils.pylogger import get_pylogger
 from scenetokens.utils.rich_utils import enforce_tags, log_hyperparameters, print_config_tree
@@ -49,7 +49,6 @@ __all__ = [
     "load_batches",
     "log_hyperparameters",
     "minmax_scaler",
-    "model_to_model_analysis",
     "plot_heatmap",
     "plot_manifold_by_tokens",
     "plot_sample_selection_sweep_heatmap",
@@ -60,6 +59,7 @@ __all__ = [
     "print_config_tree",
     "read_score_analysis",
     "run_benchmark_analysis",
+    "run_comparative_analysis",
     "run_sample_selection",
     "save_cache",
     "task_wrapper",

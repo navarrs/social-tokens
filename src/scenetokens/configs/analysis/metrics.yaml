@@ -15,6 +15,8 @@ trajectory_forecasting_metrics: [
   'minFDE6',
   'minADE6',
   'missRate',
+  'collisionRate0.1',
+  'collisionRate0.25',
 ]
 
 causal_metrics: [
@@ -34,8 +36,8 @@ other_metrics: [
 # Sample selection sweep analysis
 sample_selection_benchmark: 'causal-benchmark-labeled'
 sample_selection_files: [
-  "./meta/runs/causal_sample-selection_scene-tokens.csv",
-  "./meta/runs/causal_sample-selection_safe-scene-tokens.csv",
+  "./meta/sample_selection_results/st_selector.csv",
+  "./meta/sample_selection_results/safest_selector.csv",
 ]
 sample_selection_splits_to_compare: [
   'test/waymo-mini-causal-testing',
@@ -46,8 +48,8 @@ sample_selection_strategies_to_compare: [
   'token_random_drop',
   'simple_token_jaccard_drop',
   'gumbel_token_jaccard_drop',
-  'simple_token_hamming_drop',
-  'gumbel_token_hamming_drop',
+  # 'simple_token_hamming_drop',
+  # 'gumbel_token_hamming_drop',
 ]
 sample_retention_percentages: [0.45, 0.55, 0.65, 0.75, 0.85, 0.95]
 
@@ -55,7 +57,7 @@ run_sample_selection_sweep_lineplot_analysis: false
 lineplot_colormap: tab10
 
 run_sample_selection_sweep_heatmap_analysis: false
-heatmap_colormap: flare
+heatmap_colormap: RdYlGn_r
 highlight_color: dodgerblue
 add_rectangle_annotation: false
 
@@ -66,9 +68,9 @@ benchmark_colormap: null
 benchmark_splits_to_compare: []
 
 # Ego-safeshift analysis
-run_ego_safeshift_analysis: false
+run_ego_safeshift_analysis: true
 ego_safeshift_benchmark: 'ego-safeshift-causal-benchmark'
-ego_safeshift_filepath: "./meta/runs/ego-safeshift_benchmark.csv"
+ego_safeshift_filepath: "./meta/distribution_shift_results/ego_safeshift_benchmark.csv"
 ego_safeshift_colormap: colorblind
 ego_safeshift_splits_to_compare: [
   'test/waymo-causal-ego-safeshift-id',
@@ -76,9 +78,9 @@ ego_safeshift_splits_to_compare: [
 ]
 
 # Causal benchmark analysis
-run_causal_benchmark_analysis: false
+run_causal_benchmark_analysis: true
 causal_benchmark: 'causal-benchmark-labeled'
-causal_benchmark_filepath: "./meta/runs/causal_benchmark.csv"
+causal_benchmark_filepath: "./meta/distribution_shift_results/causal_benchmark.csv"
 causal_benchmark_colormap: colorblind
 causal_benchmark_splits_to_compare: [
   'test/waymo-mini-causal-testing',
