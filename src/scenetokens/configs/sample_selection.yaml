@@ -4,7 +4,7 @@ defaults:
   - _self_
 
 # Sample selection
-create_training_batch_cache: false # if 'true' it will create a batch cache for the train data using the pretrained model.
+create_training_batch_cache: true # if 'true' it will create a batch cache for the train data using the pretrained model.
 model:
   config:
     sample_selection: true
@@ -40,10 +40,16 @@ seed: 42 # Seed for random generators
 split: train # Specify split to consider 'train', 'val' or 'test'
 scenarios_path: ${paths.base_path}/processed/mini_causal/training # Specify path to input scenarios
 
+
 # Specify name of experiment to consider
 paths:
-  # Student Model
-  experiment_dir: causal-benchmark-labeled_scenetokens-student_2025-12-10_11-00-03
+  # Student Model (ckpt: epoch_140.ckpt)
+  # experiment_dir: causal-benchmark-labeled_scenetokens_2026-02-13_19-21-01
 
   # Safe-ST Model (ckpt: epoch_139.ckpt)
-  # experiment_dir: causal-benchmark-labeled_safe-scenetokens_safe-weight_2026-01-13_18-45-53
+  experiment_dir: causal-benchmark-labeled_safe-scenetokens_safe-weight_2026-01-13_18-45-53
+  # experiment_dir: ego-safeshift-causal-benchmark_safe-scenetokens_safe-weight_2026-01-14_16-10-23
+
+  # Causal-ST Model, run as: (ckpt: epoch_095.ckpt)
+  # uv run -m scenetokens.sample_selection model=causal_scenetokens ckpt_path=/data/driving/waymo/causal-benchmark-labeled/model_cache/causal-benchmark-labeled_causal-scenetokens_2026-02-05_15-05-18/ckpts/causal-benchmark-labeled_causal-scenetokens/epoch_095.ckpt
+  # experiment_dir: causal-benchmark-labeled_causal-scenetokens_2026-02-05_15-05-18

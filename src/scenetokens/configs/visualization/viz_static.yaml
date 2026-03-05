@@ -36,9 +36,9 @@ visualizer:
       stop_point: 0.8
 
     agent_colors:
-      TYPE_PEDESTRIAN: "green"
-      TYPE_CYCLIST: "cyan"
-      TYPE_VEHICLE: "grey"
-      TYPE_SDC: "red"
-      TYPE_RELEVANT: "orange"
-      TYPE_RELEVAN: "orange"
+      TYPE_PEDESTRIAN: "plum"
+      TYPE_CYCLIST: "forestgreen"
+      TYPE_VEHICLE: "slategray"
+      TYPE_SDC: "dodgerblue"
+      TYPE_RELEVANT: "coral"
+      TYPE_RELEVAN: "coral"
