@@ -1,5 +1,7 @@
-"""Code for the TrajectoryDecoder component of the models. The trajectory decoder takes in encoded scenario context and
-and learned scenario tokens to produce multi-modal trajectory predictions for all agents in the scene.
+"""Trajectory decoder for multi-modal future prediction.
+
+The decoder maps scenario context (and optional token conditioning) to trajectory distribution parameters and mode
+probabilities.
 """
 
 import numpy as np
@@ -12,7 +14,7 @@ from scenetokens.schemas.output_schemas import TrajectoryDecoderOutput
 
 
 class TrajectoryDecoder(nn.Module):
-    """TrajectoryDecoder class."""
+    """Decode scenario context into multi-modal trajectory predictions."""
 
     def __init__(
         self,
@@ -23,15 +25,14 @@ class TrajectoryDecoder(nn.Module):
         *,
         token_conditioning: bool = False,
     ) -> None:
-        """Initializes the Trajectory Decoder
-            NOTE: naive just refers to the tokenizer not having access to supervision signals.
+        """Initialize the trajectory decoder.
 
         Args:
-            num_modes (int): number of trajectories to predict.
-            decoding_length (int): number of steps to decode.
-            hidden_size (int): hidden size of the learnable queries.
-            num_tokens (int): size of the token input.
-            token_conditioning (bool): if True it will increase the input size of the decoders to conditon on tokens.
+            num_modes (int): Number of trajectory modes to predict.
+            decoding_length (int): Number of future steps per mode.
+            hidden_size (int): Channel size of each context query.
+            num_tokens (int | None): Number of token classes used for conditioning.
+            token_conditioning (bool): If `True`, concatenates one-hot token features to the decoder input.
         """
         super().__init__()
         self.num_modes = num_modes
@@ -54,47 +55,49 @@ class TrajectoryDecoder(nn.Module):
         self.apply(common.initialize_weights_with_xavier)
 
     def forward(self, context: torch.Tensor, tokens: torch.Tensor | None = None) -> TrajectoryDecoderOutput:
-        """Decodes encoded context.
-           B: batch size
-           Q: number of queries
-           H: hidden size
-           C: number of tokens/classes
-           M: number of modes
-           F: number of future/decoding steps
+        """Decode scenario context into trajectory modes.
+
+        Notation:
+            B: Batch size.
+            Q: Number of context queries.
+            H: Hidden size (feature channels).
+            C: Number of token classes.
+            M: Number of trajectory modes.
+            F: Number of decoded future steps.
 
         Args:
-            context (torch.tensor(B, Q, H)): tensor containing the scene encoded information.
-            tokens (torch.tensor(B, Q, C)): tensor containing the scene encoded information.
+            context (torch.Tensor): Context tensor with shape `(B, Q, H)`.
+            tokens (torch.Tensor | None): Optional one-hot token tensor with shape `(B, M, C)` when
+                `token_conditioning=True`.
 
         Returns:
-            TrajectoryDecoderOutput: pydantic validator for the trajectory decoder with:
-                decoded_trajectories (torch.tensor(B, M, F, 5)): decoded trajectories.
-                mode_probabilities (torch.tensor(B, M)): probability scores for each mode.
+            TrajectoryDecoderOutput: A container with:
+                decoded_trajectories (torch.Tensor): Bivariate Gaussian parameters with shape `(B, M, F, 5)`.
+                mode_probabilities (torch.Tensor): Softmax-normalized mode probabilities with shape `(B, M)`.
+                mode_logits (torch.Tensor): Pre-softmax mode scores with shape `(B, M)`.
         """
         batch_size, _, _ = context.shape
 
-        # Concatenate token information if the decoder is conditioned on the scenario tokens.
+        # Concatenate token features when conditioning on scenario tokens.
         if self.token_conditioning and tokens is not None:
             assert tokens.shape[-1] == self.num_tokens, (
                 f"Token shape[-1] {tokens.shape[-1]} != num tokens {self.num_tokens}"
             )
-            # context shape: (B, Q, H+C)
+            # context shape: (B, M, H + C)
             context = torch.cat([context[:, : self.num_modes], tokens], dim=2)
 
-        # The trajectory decoder further processes M queries to produce M different predicted modes for all future (F)
-        # steps in the scenario.
-        #   dec_trajs shape: (B, M, F * 5) -> (B, M, F, 5)
+        # Decode M query slots into M trajectory modes across the F-step horizon.
+        # Shape: (B, M, F * 5) -> (B, M, F, 5).
         decoded_trajectories = self.decoder_output(context[:, : self.num_modes])
         decoded_trajectories = decoded_trajectories.reshape(batch_size, self.num_modes, self.decoding_length, -1)
 
-        # The probability decoder further produces a probability score for each of the predicted modes, representing
-        # the likelihood of the predicted trajectory.
-        # Mode prediction shape: (B, num_modes, 1) -> (B, num_modes)
+        # Predict one score per mode and normalize with softmax.
+        # Shape: (B, M, 1) -> (B, M).
         mode_probabilities = self.decoder_probs(context[:, : self.num_modes])
         mode_probabilities = mode_probabilities.reshape(batch_size, self.num_modes)
 
         if len(np.argwhere(np.isnan(decoded_trajectories.detach().cpu().numpy()))) > 1:
-            error_message = "Found nans during decoding step."
+            error_message = "Found NaNs during decoding step."
             raise ValueError(error_message)
 
         return TrajectoryDecoderOutput(

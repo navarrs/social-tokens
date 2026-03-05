@@ -1,5 +1,7 @@
-"""Code for the PerceiverEmbedder component of the models. The PerceiverEmbedder takes in raw scenario features and
-produces encoded and decoded scenario embeddings using the PerceiverIO architecture.
+"""Perceiver embedder for scenario tokenization.
+
+This module defines `PerceiverEmbedder`, which maps mixed scene features to encoded
+and decoded scenario embeddings with a Perceiver IO encoder-decoder stack.
 """
 
 import torch
@@ -11,21 +13,24 @@ from scenetokens.schemas.output_schemas import ScenarioEmbedding
 
 
 class PerceiverEmbedder(nn.Module):
-    """PerceiverEmbedder class."""
+    """Encode mixed scene features and decode fixed-size scenario embeddings."""
 
     def __init__(
         self, num_encoder_queries: int, num_decoder_queries: int, hidden_size: int, query_init_scale: float
     ) -> None:
-        """Initializes the Wayformer class.
+        """Initialize the Perceiver-based scenario embedder.
 
         Args:
-            num_encoder_queries (int): number of encoder queries for the PerceiverEncoder
-            num_decoder_queries (int): number of encoder queries for the PerceiverDecoder
-            hidden_size (int): size of the embedding space.
-            query_init_scale (float): intialization scale value.
+            num_encoder_queries (int): Number of latent queries used by the
+                `PerceiverEncoder`.
+            num_decoder_queries (int): Number of learned output queries used by
+                the `PerceiverDecoder`.
+            hidden_size (int): Channel dimension for inputs, latents, and outputs.
+            query_init_scale (float): Standard deviation used to initialize
+                decoder queries.
         """
         super().__init__()
-        # Scenario Encoder
+        # Perceiver encoder over mixed scene tokens.
         self.perceiver_encoder = PerceiverEncoder(
             num_encoder_queries,
             hidden_size,
@@ -34,7 +39,7 @@ class PerceiverEmbedder(nn.Module):
             num_self_attention_qk_channels=hidden_size,
             num_self_attention_v_channels=hidden_size,
         )
-        # Scenario Decoder
+        # Perceiver decoder over trainable output queries.
         scenario_decoder_query = TrainableQueryProvider(
             num_queries=num_decoder_queries,
             num_query_channels=hidden_size,
@@ -44,20 +49,24 @@ class PerceiverEmbedder(nn.Module):
         self.apply(common.initialize_weights_with_xavier)
 
     def forward(self, features: torch.Tensor, masks: torch.Tensor) -> ScenarioEmbedding:
-        """Embeds the scenario features.
-           B: batch size
-           Q: number of queries
-           H: hidden size
-           D: scenario features
+        """Embed scene features with a Perceiver IO encoder-decoder stack.
+
+        Notation:
+            B: Batch size.
+            M: Number of mixed scene tokens.
+            H: Hidden size (feature channels).
+            Qe: Number of encoder latent queries.
+            Qd: Number of decoder output queries.
 
         Args:
-            features (torch.tensor(B, H, D+1)): tensor containing scenario feature information.
-            masks (torch.tensor(B, H, N, D+1)): tensor containg scenario mask information.
+            features (torch.Tensor): Mixed scene features with shape `(B, M, H)`.
+            masks (torch.Tensor): Padding mask for `features` with shape `(B, M)`.
+                `True` entries indicate padded tokens ignored by cross-attention.
 
         Returns:
-            ScenarioEmbedding: pydantic validator for the trajectory decoder with:
-                scenario_enc (torch.tensor(B, Q, H)): encoded scenario using PerceiverIO
-                scenario_dec (torch.tensor(B, Q, H)): decoded scenario using PerceiverIO
+            ScenarioEmbedding: A container with:
+                scenario_enc (torch.Tensor): Encoded representation of shape `(B, Qe, H)`.
+                scenario_dec (torch.Tensor): Decoded representation of shape `(B, Qd, H)`.
         """
         scenario_enc = self.perceiver_encoder(features, masks)
         scenario_dec = self.perceiver_decoder(scenario_enc)

@@ -1,3 +1,5 @@
+"""Factorized scene embedder for scenario tokenization."""
+
 import torch
 from torch import nn
 
@@ -8,7 +10,7 @@ from scenetokens.schemas.output_schemas import ScenarioEmbedding
 
 
 class FactorizedEmbedder(nn.Module):
-    """FactorizedEmbedder class."""
+    """Encode scene features with factorized attention over time, agents, and map."""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -27,6 +29,28 @@ class FactorizedEmbedder(nn.Module):
         *,
         bias: bool = True,
     ) -> None:
+        """Initialize the factorized scenario embedder.
+
+        Args:
+            num_pre_self_attention_blocks (int): Number of self-attention
+                pairs (time then agents) before pre cross-attention.
+            num_pre_cross_attention_blocks (int): Number of pre
+                cross-attention blocks between agents and map features.
+            num_mid_self_attention_blocks (int): Number of self-attention
+                pairs (time then agents) in the middle stage.
+            num_mid_cross_attention_blocks (int): Number of middle
+                cross-attention blocks between agents and map features.
+            num_post_self_attention_blocks (int): Number of self-attention
+                pairs (time then agents) in the post stage.
+            hidden_size (int): Feature-channel dimension.
+            num_timesteps (int): Number of time steps in the agent history.
+            num_agents (int): Maximum number of non-ego agents.
+            num_queries (int): Number of output scenario queries.
+            num_heads (int): Number of attention heads.
+            widening_factor (int): Expansion ratio for MLP layers.
+            dropout (float): Dropout probability.
+            bias (bool): If `True`, enables bias terms in linear layers.
+        """
         super().__init__()
 
         def get_self_attention_block(across: str) -> FactorizedSelfAttentionBlock:
@@ -52,8 +76,8 @@ class FactorizedEmbedder(nn.Module):
 
         self.attention_blocks = []
 
-        # Social-Temporal encoding. Largely based on factorized encoding (https://arxiv.org/pdf/2106.08417.pdf) which
-        # sequentially adds a transformer block across agents after a block across time.
+        # Social-temporal encoding based on factorized attention: https://arxiv.org/pdf/2106.08417.pdf
+        # Each stage applies self-attention across time, then across agents.
         for _ in range(num_pre_self_attention_blocks):
             self.attention_blocks.append(get_self_attention_block(across="time"))
             self.attention_blocks.append(get_self_attention_block(across="agents"))
@@ -79,14 +103,14 @@ class FactorizedEmbedder(nn.Module):
         # Combine all blocks
         self.attention_blocks = nn.ModuleList(self.attention_blocks)
 
-        # Final refiner layer that will transform the output to be compatible with the scene decoder
-        # The temporal refiner will summarize the time axis (B, 1+N, T, D) -> (B, 1+N, D)
+        # Refiner layers that map factorized features into decoder-compatible scene tokens.
+        # Temporal refiner summarizes time: (B, A, T, H) -> (B, A, H).
         self.temporal_refiner = nn.Sequential(nn.Linear(num_timesteps * hidden_size, hidden_size), nn.GELU())
 
-        # The social refiner will summarize the agent axis (B, 1+N, D) -> (B, Q, D)
+        # Social refiner summarizes agents: (B, A, H) -> (B, H).
         self.social_refiner = nn.Sequential(nn.Linear((1 + num_agents) * hidden_size, hidden_size), nn.GELU())
 
-        # The scenario decoder will produce Q scenario prototypes
+        # Scenario decoder produces Q scenario prototypes.
         self.num_queries = num_queries
         self.scenario_decoder = nn.Linear(hidden_size, self.num_queries * hidden_size)
 
@@ -99,38 +123,41 @@ class FactorizedEmbedder(nn.Module):
         road_features: torch.Tensor,
         road_masks: torch.Tensor,
     ) -> ScenarioEmbedding:
-        """Embeds the scenario features.
-           B: batch size
-           N: number of agents
-           T: number of timesteps
-           P: number of map inputs
-           H: hidden size
-           Q: number of scenario queries
+        """Embed scene features with factorized self- and cross-attention.
+
+        Notation:
+            B: Batch size.
+            A: Number of agents, including ego (`A = 1 + N`).
+            T: Number of timesteps.
+            P: Number of map tokens.
+            H: Hidden size (feature channels).
+            Q: Number of output scenario queries.
 
         Args:
-            agent_features (torch.tensor(B, 1+N, T, H)): tensor containing agent feature information.
-            agent_masks (torch.tensor(B, 1+N, T)): tensor containg agent mask information.
-            road_features (torch.tensor(B, P, H)): tensor containing map feature information.
-            road_masks (torch.tensor(B, P)): tensor containg map mask information.
+            agent_features (torch.Tensor): Agent features with shape `(B, A, T, H)`.
+            agent_masks (torch.Tensor): Padding mask for `agent_features` with shape `(B, A, T)`. `True` entries are
+                masked.
+            road_features (torch.Tensor): Map features with shape `(B, P, H)`.
+            road_masks (torch.Tensor): Padding mask for `road_features` with shape `(B, P)`. `True` entries are masked.
 
         Returns:
-            ScenarioEmbedding: pydantic validator for the trajectory decoder with:
-                scenario_enc (torch.tensor(B, 1+N, T, H)): encoded scenario using PerceiverIO
-                scenario_dec (torch.tensor(B, Q, H)): decoded scenario using PerceiverIO
+            ScenarioEmbedding: A container with:
+                scenario_enc (torch.Tensor): Encoded scene features of shape `(B, A, T, H)`.
+                scenario_dec (torch.Tensor): Decoded scene features of shape `(B, Q, H)`.
         """
-        # Encode the scenario using factorized attention across time, agents and map
+        # Encode scene context with factorized attention across time, agents, and map.
         scenario_enc = agent_features
         for block in self.attention_blocks:
             scenario_enc = block(scenario_enc, road_features, agent_masks, road_masks)
 
-        # First, summarize the time axis
+        # Summarize the time axis.
         batch_size, num_agents, _, _ = scenario_enc.shape
-        # scenario_enc reshaped: (B, 1+N, T*H)
-        # scenario_dec after temporal summary shape: (B, 1+N, H)
+        # Reshape for temporal summary: (B, A, T, H) -> (B, A, T * H).
+        # After temporal summary: (B, A, H).
         scenario_dec = self.temporal_refiner(scenario_enc.view(batch_size, num_agents, -1))
-        # scenario_dec reshaped: (B, (1+N) * H)
-        # scenario_dec after social summary shape: (B, H)
+        # Reshape for social summary: (B, A, H) -> (B, A * H).
+        # After social summary: (B, H).
         scenario_dec = self.social_refiner(scenario_dec.view(batch_size, -1))
-        # scenario_dec after decoder shape: (B, Q, H)
+        # Decode into scenario tokens: (B, H) -> (B, Q, H).
         scenario_dec = self.scenario_decoder(scenario_dec).reshape(batch_size, self.num_queries, -1)
         return ScenarioEmbedding(scenario_enc=scenario_enc, scenario_dec=scenario_dec)
