@@ -18,21 +18,20 @@ from scenetokens.utils.constants import SMALL_EPSILON
 
 MODEL_NAME_MAP = {
     "autobot": "AutoBot",
-    "wayformer": "Wayformer",
     "scenetransformer": "SceneTransformer",
+    "wayformer": "Wayformer",
     "scenetokens": "ST",
     "causal-scenetokens": "Causal-ST",
     "safe-scenetokens": "Safe-ST",
-    "autobot": "AutoBot",
 }
 
 MODEL_SIZE_MAP = {
-    "Wayformer": "15.1M",
+    "AutoBot": "1.5M",
     "SceneTransformer": "7.6M",
+    "Wayformer": "15.1M",
     "ST": "15.3M",
     "Causal-ST": "15.6M",
     "Safe-ST": "15.6M",
-    "AutoBot": "1.5M",
 }
 
 BENCHMARK_NAME_MAP = {
@@ -276,7 +275,7 @@ def plot_sample_selection_sweep_lineplot(config: DictConfig, log: Logger, output
         _plot_joint_sample_selection_sweep_lineplot(config, log, output_path, metrics_dataframes)
 
 
-def _plot_sample_selection_sweep_heatmap(
+def _plot_sample_selection_sweep_heatmap(  # noqa: PLR0912, PLR0915
     config: DictConfig, log: Logger, output_path: Path, metrics_df: pd.DataFrame, suffix: str = ""
 ) -> None:
     """Plot heatmaps comparing sample selection strategies across retention percentages for each (model, split, metric).
@@ -384,12 +383,10 @@ def _plot_sample_selection_sweep_heatmap(
                     j = np.nanargmin(row)
                     best_val = row[j]
                     base_val = base_values.get(i)
+                    edge_color, marker_color = "black", "black"
                     if base_val is not None and best_val < base_val:
                         edge_color = highlight_color
                         marker_color = highlight_color
-                    else:
-                        edge_color = "black"
-                        marker_color = "black"
 
                     if config.add_rectangle_annotation:
                         ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, edgecolor=edge_color, linewidth=3))
@@ -407,7 +404,6 @@ def _plot_sample_selection_sweep_heatmap(
             masked_base = np.ma.masked_invalid(base_data)
             im = ax_base.imshow(masked_base, aspect="auto", cmap=cmap, vmin=vmin, vmax=vmax)
             im.cmap.set_bad(color="#eeeeee")
-
             ax_base.set_title("Base", pad=6)
             ax_base.set_xticks([])
             ax_base.set_yticks([])
@@ -423,24 +419,8 @@ def _plot_sample_selection_sweep_heatmap(
 
             # Legend handles to show best strategies
             legend = [
-                Line2D(
-                    [0],
-                    [0],
-                    marker="*",
-                    color=highlight_color,
-                    linestyle="None",
-                    markersize=10,
-                    label="Best strategy improves over base",
-                ),
-                Line2D(
-                    [0],
-                    [0],
-                    marker="*",
-                    color="black",
-                    linestyle="None",
-                    markersize=10,
-                    label="Best strategy ≥ base",
-                ),
+                Line2D([0], [0], marker="*", color=highlight_color, markersize=10, label="Best strategy > base"),
+                Line2D([0], [0], marker="*", color="black", markersize=10, label="Best strategy ≥ base"),
             ]
 
             # Save figure
@@ -474,7 +454,7 @@ def _get_baseline_values(
     for model, split, metric in product(models, splits, metrics):
         column = f"{split}/{metric}" if metric in config.trajectory_forecasting_metrics else metric
 
-        for _, metrics_df in metrics_dfs.items():
+        for metrics_df in metrics_dfs.values():
             base_name = f"{config.sample_selection_benchmark}_{model}"
             row = metrics_df[metrics_df["Name"] == base_name]
 
@@ -489,7 +469,7 @@ def _get_baseline_values(
     return base_values
 
 
-def _plot_sample_selection_sweep_heatmap_baseline_gap(
+def _plot_sample_selection_sweep_heatmap_baseline_gap(  # noqa: PLR0912, PLR0915
     config: DictConfig,
     log: Logger,
     output_path: Path,
@@ -662,7 +642,7 @@ def _plot_sample_selection_sweep_heatmap_baseline_gap(
         log.info("Saved heatmaps to %s", output_file)
 
 
-def _plot_sample_selection_sweep_distribution_gap(
+def _plot_sample_selection_sweep_distribution_gap(  # noqa: PLR0912, PLR0915
     config: DictConfig,
     log: Logger,
     output_path: Path,
@@ -678,7 +658,7 @@ def _plot_sample_selection_sweep_distribution_gap(
         metrics_dfs (dict[str, pd.DataFrame]): Dictionary of DataFrames containing the metrics data for each strategy.
     """
     splits = config.sample_selection_splits_to_compare
-    if len(splits) < 2:
+    if len(splits) < 2:  # noqa: PLR2004
         log.warning("Need at least two splits to compute distribution gap, got: %s", splits)
         return
 
@@ -883,7 +863,7 @@ def _plot_sample_selection_sweep_distribution_gap(
         log.info("Saved distribution gap heatmaps to %s", output_file)
 
 
-def plot_sample_selection_sweep_heatmap(config: DictConfig, log: Logger, output_path: Path) -> None:  # noqa: PLR0915, PLR0912
+def plot_sample_selection_sweep_heatmap(config: DictConfig, log: Logger, output_path: Path) -> None:
     """For each split and metric, creates a figure with P heatmaps (one per retention percentage). Each heatmap shows:
     - rows: models
     - columns: strategies
@@ -910,9 +890,9 @@ def plot_sample_selection_sweep_heatmap(config: DictConfig, log: Logger, output_
         metrics_df = pd.read_csv(metrics_filepath)
         suffix = Path(file).stem.split("_")[0]  # contains the name of the selector
         metrics_dataframes[suffix] = metrics_df
-        # _plot_sample_selection_sweep_heatmap(config, log, output_path, metrics_df, f"_{suffix}")
+        _plot_sample_selection_sweep_heatmap(config, log, output_path, metrics_df, f"_{suffix}")
 
-    # _plot_sample_selection_sweep_heatmap_baseline_gap(config, log, output_path, metrics_dataframes)
+    _plot_sample_selection_sweep_heatmap_baseline_gap(config, log, output_path, metrics_dataframes)
     _plot_sample_selection_sweep_distribution_gap(config, log, output_path, metrics_dataframes)
 
 
@@ -1319,8 +1299,8 @@ def run_benchmark_analysis(config: DictConfig, log: Logger, output_path: Path) -
     ]
     _plot_grouped_bar_chart(summary_df, metrics, output_path, key_metrics_display=key_metrics_display)
 
-    # # Generate LaTeX table
-    _convert_to_tex_table(
+    # Generate LaTeX table
+    _distribution_shift_to_tex_table(
         benchmark_df,
         BENCHMARK_NAME_MAP.get(config.benchmark) or config.benchmark,
         id_split,
@@ -1332,7 +1312,7 @@ def run_benchmark_analysis(config: DictConfig, log: Logger, output_path: Path) -
     print("\n✓ Analysis complete!")
 
 
-def _convert_to_tex_table(  # noqa: PLR0913, PLR0915
+def _distribution_shift_to_tex_table(  # noqa: PLR0912, PLR0913, PLR0915
     benchmark_df: pd.DataFrame,
     benchmark_name: str,
     id_split: str,
@@ -1341,7 +1321,7 @@ def _convert_to_tex_table(  # noqa: PLR0913, PLR0915
     output_path: Path | None,
     min_color_value: float = 20.0,
 ) -> str:
-    """Converts the benchmark comparison DataFrame into a LaTeX table with performance gap annotations and coloring.
+    """Converts the distribution shift benchmark DataFrame into a LaTeX table with performance gap annotations/coloring.
 
     Args:
         benchmark_df (pd.DataFrame): DataFrame containing model names and their corresponding metric values.
@@ -1385,10 +1365,7 @@ def _convert_to_tex_table(  # noqa: PLR0913, PLR0915
         # Model size
         if "model/params/total" in row and pd.notna(row["model/params/total"]):
             size_val = row["model/params/total"]
-            if isinstance(size_val, (int, float)):
-                size_str = f"{size_val:.2e}"
-            else:
-                size_str = str(size_val)
+            size_str = f"{size_val:.2e}" if isinstance(size_val, (int, float)) else str(size_val)
         else:
             size_str = MODEL_SIZE_MAP.get(row["Model"], "---")
         row_parts.append(size_str)
@@ -1465,14 +1442,12 @@ def _convert_to_tex_table(  # noqa: PLR0913, PLR0915
 
     latex.append(" & & & " + " & ".join([*metrics, "", "", *metrics]) + " \\\\")
     latex.append("\\midrule")
-
     latex.extend(table_rows)
 
     latex.append("\\bottomrule")
     latex.append("\\end{tabular}%")
     latex.append("}")
     latex.append("\\end{table*}")
-
     latex_table = "\n".join(latex)
 
     if output_path is not None:

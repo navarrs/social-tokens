@@ -18,7 +18,7 @@ from omegaconf import DictConfig
 from scenetokens import utils
 
 
-_LOGGER = utils.get_pylogger(__name__)
+log = utils.get_pylogger(__name__)
 
 pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
@@ -43,11 +43,11 @@ def _run_experiment_analysis(config: DictConfig, output_path: Path) -> None:
             config.run_score_analysis,
         ]
     ):
-        _LOGGER.info("No analyses selected to run. Skipping batch loading and analysis.")
+        log.info("No analyses selected to run. Skipping batch loading and analysis.")
         return
 
     # Load tokenized scenario information.
-    _LOGGER.info("Loading batches from %s", config.paths.batch_cache_path)
+    log.info("Loading batches from %s", config.paths.batch_cache_path)
     batches = utils.load_batches(
         config.paths.batch_cache_path, config.num_batches, config.num_scenarios, config.seed, config.split
     )
@@ -56,33 +56,33 @@ def _run_experiment_analysis(config: DictConfig, output_path: Path) -> None:
 
     # Plot a histogram over tokenized scenarios to show token utilization.
     if config.run_scenario_class_distribution:
-        _LOGGER.info("Running tokenization distribution analysis...")
+        log.info("Running tokenization distribution analysis...")
         utils.plot_scenario_class_distribution(config, batches, output_path)
 
     # Compute token consistency across tokenized groups.
     if config.run_token_consistency_analysis:
-        _LOGGER.info("Running tokenization consistency distribution analysis...")
+        log.info("Running tokenization consistency distribution analysis...")
         utils.compute_token_consistency_matrix(config, batches, output_path)
 
     # Compute group-uniqueness distribution over tokenized groups.
     if config.run_group_uniqueness_analysis:
-        _LOGGER.info("Running group uniqueness distribution analysis...")
+        log.info("Running group uniqueness distribution analysis...")
         utils.compute_group_uniqueness(config, batches, output_path)
 
     # Compute intergroup-uniqueness distribution across tokenized groups.
     if config.run_intergroup_analysis:
-        _LOGGER.info("Running intergroup distribution analysis...")
+        log.info("Running intergroup distribution analysis...")
         utils.compute_intergroup_uniqueness(config, batches, output_path)
 
     # Visualize scenario embeddings with dimensionality-reduction methods.
     if config.run_dim_reduction_analysis:
-        _LOGGER.info("Running dimensionality reduction analysis...")
+        log.info("Running dimensionality reduction analysis...")
         dim_reduction_result = utils.compute_dimensionality_reduction(config, batches, output_path)
         utils.plot_manifold_by_tokens(config, dim_reduction_result, batches, output_path)
 
     # Compute per-class score analysis over scenarios.
     if config.run_score_analysis:
-        _LOGGER.info("Running score analysis...")
+        log.info("Running score analysis...")
         score_analysis = utils.compute_score_analysis(config, batches, output_path)
         if config.viz_scored_scenarios:
             utils.plot_tokenized_scenarios_by_score_percentile(config, batches, score_analysis, output_path)
@@ -96,7 +96,7 @@ def main(config: DictConfig) -> float | None:
     # Run selected analyses for each configured experiment and save outputs.
     for experiment_dir in config.experiment_dirs:
         random.seed(config.seed)
-        _LOGGER.info("Running analysis for experiment: %s", experiment_dir)
+        log.info("Running analysis for experiment: %s", experiment_dir)
         start = time()
 
         # Print configuration to validate the experiment_dir used for this run.
@@ -115,12 +115,12 @@ def main(config: DictConfig) -> float | None:
         _run_experiment_analysis(experiment_config, output_path)
         analysis_paths[experiment_dir] = output_path
 
-        _LOGGER.info("Total time: %s second", time() - start)
-        _LOGGER.info("Process completed!")
+        log.info("Total time: %s seconds", time() - start)
+        log.info("Process completed!")
 
     # If more than one experiment is being analyzed, we also run a comparative analysis across the experiments.
     if len(analysis_paths) > 1:
-        _LOGGER.info("Running comparative analysis across experiments...")
+        log.info("Running comparative analysis across experiments...")
         analysis_path = Path(config.output_path) / "tokenization" / "comparative-analysis"
         utils.run_comparative_analysis(analysis_paths, analysis_path)
 
