@@ -1,3 +1,5 @@
+"""Code for the AutoBot model."""
+
 import torch
 import torch.nn.functional as F  # noqa: N812
 from omegaconf import DictConfig
@@ -101,17 +103,17 @@ class AutoBot(BaseModel):
 
         Notation:
             B: batch size
-            N:  max number agents in the scene
-            H:  history length
-            F:  future length
-            G:  GMM size
-            M:  number of predicted modes
-            P:  number of map polylines
-            D:  number of agent features + types
-            R:  number of road features + types
+            N: max number of non-ego agents in the scene
+            H: history length
+            F: future length
+            M: number of predicted modes
+            P: number of map polylines
+            L: number of points per polyline
+            Da: number of agent features
+            Dr: number of road features
             Qe: number of encoded queries
             Qd: number of decoded queries
-            E:  hidden size
+            E: hidden size
 
         Args:
             batch (dict): dictionary containing the following input data batch:
@@ -119,8 +121,8 @@ class AutoBot(BaseModel):
                 input_dict (dict): dictionary containing the scenario information
 
         Returns:
-            ModelOutput: Structured model outputs including scenario embeddings, trajectory decoder outputs,
-                history and future ground-truth tensors, dataset metadata, and optional scenario scores.
+            ModelOutput: structured outputs including scenario embeddings, trajectory decoder outputs, ground-truth
+                tensors, metadata, and optional scenario scores.
         """
         inputs = batch["input_dict"]
         history_gt_trajs = inputs["obj_trajs"]
@@ -130,13 +132,13 @@ class AutoBot(BaseModel):
         center_gt_trajs = inputs["center_gt_trajs"][..., :2]
         center_gt_trajs_mask = inputs["center_gt_trajs_mask"].unsqueeze(-1)
 
-        # Ground truth trajectories shape: (B, F, 3) 3 is for x,y+mask
+        # Ground-truth trajectory shape: (B, F, 3), where 3 = (x, y, mask).
         future_ground_truth = torch.cat([center_gt_trajs, center_gt_trajs_mask], dim=-1)
 
         # Gathered input shapes
-        #   ego_agent: (B, H, D + mask)
-        #   other_agents: (B, N, H, D + mask)
-        #   roads: (B, P, R, D + mask)
+        #   ego_agent: (B, H, Da + 1)
+        #   other_agents: (B, H, N, Da + 1)
+        #   roads: (B, P, L, Dr + 1)
         ego_agent, other_agents, roads = BaseModel.gather_input(inputs)
 
         # Get scenario scores if available
@@ -144,7 +146,7 @@ class AutoBot(BaseModel):
 
         batch_size = ego_agent.size(0)
 
-        # Encode all input observations and return only the ego-agent's embedding shape (B, H, E)
+        # Encode inputs and return only the ego-agent embedding, with shape (B, H, E).
         agents_tensor, ego_mask, other_agents_masks = self.process_agents_tensor(ego_agent, other_agents)
         ego_soctemp_emb = self.embed_agents(agents_tensor, other_agents_masks, return_ego_only=True)
 
@@ -222,24 +224,25 @@ class AutoBot(BaseModel):
     def embed_agents(
         self, agents_tensor: torch.Tensor, other_agents_masks: torch.Tensor, *, return_ego_only: bool = True
     ) -> torch.Tensor:
-        """Embeds the agents in the scenario using factorized attention encoder.
+        """Embed agents in the scenario using a factorized attention encoder.
 
         Notation:
             B: batch size
-            N: max number agents in the scene
-            No: number of returned agents (1 if return_ego_only is True, else N+1)
+            N: max number of non-ego agents in the scene
+            Na: number of returned agents (1 if `return_ego_only` is True, otherwise N + 1)
             H: history length
-            D: number of agent features + types
+            Da: number of agent features
             E: hidden size
 
         Args:
-            agents_tensor (torch.tensor(B, H, N+1, D+1)): tensor containing agent features (D) and mask (1) information.
-            other_agents_masks (torch.tensor(B, H, N+1)): tensor containing mask information for other agents.
-            return_ego_only (bool): whether to return only the ego-agent's embedding or the embeddings of all agents.
+            agents_tensor (torch.Tensor): tensor with shape (B, H, N + 1, Da), containing agent features.
+            other_agents_masks (torch.Tensor): tensor with shape (B, H, N + 1), containing mask information for ego and
+                other agents.
+            return_ego_only (bool): whether to return only the ego-agent embedding or embeddings for all agents.
 
         Returns:
-            agents_emb (torch.tensor(H, B, No, E)): tensor containing the agent embedded features across time and
-                social dimensions. If return_ego_only is True, No will be 1, otherwise it will be N+1.
+            torch.Tensor: tensor containing embedded agent features across time and social dimensions. Shape is
+                (H, B, N_a, E), or (H, B, E) when `return_ego_only` is True.
         """
         # Agents emb shape: (B, H, N+1, D) -> (H, B, N+1, E) after encoding and permuting for attention layers
         agents_emb = self.agents_dynamic_encoder(agents_tensor).permute(1, 0, 2, 3)
@@ -251,44 +254,42 @@ class AutoBot(BaseModel):
             agents_emb = self.compute_social_attention(agents_emb, other_agents_masks, layer=self.social_attn_layers[i])
 
         if return_ego_only:
-            return agents_emb[:, :, 0]  # take ego-agent encodings only.
+            return agents_emb[:, :, 0]  # Keep only ego-agent encodings.
         return agents_emb
 
     def generate_causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
-        """Generates a causal mask for the decoder to prevent attending to future time steps.
+        """Generate a causal decoder mask for future time steps.
 
         Args:
-            seq_len (int): the length of the sequence for which to generate the mask.
-            device (torch.device): the device on which to create the mask tensor.
+            seq_len (int): length of the sequence.
+            device (torch.device): device on which to create the mask tensor.
 
         Returns:
-            torch.Tensor: a boolean tensor of shape (seq_len, seq_len) where True values indicate positions that should
-                be masked (i.e., future time steps) and False values indicate valid positions
+            torch.Tensor: boolean tensor with shape (seq_len, seq_len), where True indicates masked (future) positions.
         """
         return (torch.triu(torch.ones((seq_len, seq_len), device=device), diagonal=1)).bool()
 
     def process_agents_tensor(
         self, ego_agent: torch.Tensor, other_agents: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Processes the input observations to obtain the agent dynamic states, active agent masks and env masks.
+        """Process input observations into agent states and masks.
 
         Notation:
             B: batch size
-            N: max number agents in the scene
+            N: max number of non-ego agents in the scene
             H: history length
-            D: number of agent features + types
+            Da: number of agent features
+            M: number of predicted modes
 
         Args:
-            ego_agent (torch.tensor(B, H, D+1)): tensor containing ego-agent features (D) and mask (1) information.
-            other_agents (torch.tensor(B, H, N, D+1)): tensor containing other agents features and mask information.
+            ego_agent (torch.Tensor): tensor with shape (B, H, Da + 1), containing ego-agent features and mask.
+            other_agents (torch.Tensor): tensor with shape (B, H, N, Da + 1), containing other-agent features and masks.
 
         Returns:
-            agents_tensor (torch.tensor(B, H, N+1, D)): tensor containing the features of all agents in the scenario
-                without the mask information.
-            env_masks (torch.tensor(B * M, H)): tensor containing repeated ego-environment masks used by the decoder,
-                where True indicates a masked timestep.
-            other_agents_masks (torch.tensor(B, H, N+1)): tensor containing masks for ego + other agents,
-                where True indicates a masked agent entry.
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                - agents_tensor: shape (B, H, N + 1, Da), without mask values.
+                - env_masks: shape (B * M, H), repeated masks for decoding.
+                - other_agents_masks: shape (B, H, N + 1), where True indicates masked agent entries.
         """
         # Ego information
         #   ego tensor shape: (B, H, D+1)
@@ -307,7 +308,7 @@ class AutoBot(BaseModel):
         #   agent masks shape: (B, H, N)
         other_agents_tensor = other_agents[:, :, :, : self.config.agents_input_size]  # only opponent states
         temp_masks = torch.cat((torch.ones_like(env_masks_orig.unsqueeze(-1)), other_agents[:, :, :, -1]), dim=-1)
-        opps_masks = (1.0 - temp_masks).to(torch.bool)  # only for agents.
+        opps_masks = (1.0 - temp_masks).to(torch.bool)  # Agent-level masks.
 
         # Combined agents information
         #   agents tensor shape: (B, H, 1+N, D)
@@ -317,23 +318,22 @@ class AutoBot(BaseModel):
     def compute_temporal_attention(
         self, agents_emb: torch.Tensor, agent_masks: torch.Tensor, layer: nn.Module
     ) -> torch.Tensor:
-        """Calculates the temporal attention for the agents.
+        """Compute temporal attention over each agent's history.
 
         Notation:
             H: history length
             B: batch size
-            N: max number agents in the scene
+            N: max number of agents in the scene
             E: embedding size
 
         Args:
-            agents_emb (torch.tensor(H, B, N, E)): tensor containing the embedded features of all agents.
-            agent_masks (torch.tensor(B, H, N)): tensor containing the mask information for the agents, where 1
-                corresponds to valid steps and 0 corresponds to invalid steps.
-            layer (nn.Module): the transformer encoder layer to be applied for temporal attention.
+            agents_emb (torch.Tensor): tensor with shape (H, B, N, E), containing embedded agent features.
+            agent_masks (torch.Tensor): tensor with shape (B, H, N), where 1 corresponds to valid steps and 0
+                corresponds to invalid steps.
+            layer (nn.Module): transformer encoder layer used for temporal attention.
 
         Returns:
-            agents_temp_emb (torch.tensor(H, B, N, E)): tensor containing the embedded features of all agents after
-                applying temporal attention.
+            torch.Tensor: tensor with shape (H, B, N, E) after temporal attention.
         """
         hist_len, batch_size, num_agents, _ = agents_emb.size()
 
@@ -344,30 +344,29 @@ class AutoBot(BaseModel):
         # Positional encoding shape (H, B * N, E)
         pos_enc = self.pos_encoder(agents_emb.reshape(hist_len, batch_size * num_agents, -1))
 
-        # Apply transformer encoder layer for temporal attention
+        # Apply transformer encoder for temporal attention.
         agents_temp_emb = layer(pos_enc, src_key_padding_mask=temp_masks)
         return agents_temp_emb.view(hist_len, batch_size, num_agents, -1)
 
     def compute_social_attention(
         self, agents_emb: torch.Tensor, agent_masks: torch.Tensor, layer: nn.Module
     ) -> torch.Tensor:
-        """Calculates the social attention for the agents.
+        """Compute social attention across agents.
 
         Notation:
-            T: history length
+            H: history length
             B: batch size
-            N: max number agents in the scene
+            N: max number of agents in the scene
             E: embedding size
 
         Args:
-            agents_emb (torch.tensor(T, B, N, E)): tensor containing the embedded features of all agents.
-            agent_masks (torch.tensor(B, T, N)): tensor containing the mask information for the agents, where 1
-                corresponds to valid steps and 0 corresponds to invalid steps.
-            layer (nn.Module): the transformer encoder layer to be applied for social attention.
+            agents_emb (torch.Tensor): tensor with shape (H, B, N, E), containing embedded agent features.
+            agent_masks (torch.Tensor): tensor with shape (B, H, N), where 1 corresponds to valid steps and 0
+                corresponds to invalid steps.
+            layer (nn.Module): transformer encoder layer used for social attention.
 
         Returns:
-            agents_soc_emb (torch.tensor(T, B, N, E)): tensor containing the embedded features of all agents after
-                applying social attention.
+            torch.Tensor: tensor with shape (H, B, N, E) after social attention.
         """
         hist_len, batch_size, num_agents, _ = agents_emb.size()
         agents_emb = agents_emb.permute(2, 1, 0, 3).reshape(num_agents, batch_size * hist_len, -1)
