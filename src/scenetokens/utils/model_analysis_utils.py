@@ -1,4 +1,7 @@
-"""Utility functions to perform model analysis. See 'docs/ANALYSIS.md' for details on usage."""
+"""Utility functions for model analysis.
+
+See `docs/ANALYSIS.md` for usage details.
+"""
 
 import pickle
 from pathlib import Path
@@ -548,7 +551,13 @@ def get_group_unique(
 
 
 def plot_heatmap(  # noqa: PLR0913
-    heatmap: npt.NDArray[np.float64], title: str, x_label: str, y_label: str, cbar_label: str, output_filepath: Path
+    heatmap: npt.NDArray[np.float64],
+    title: str,
+    x_label: str,
+    y_label: str,
+    cbar_label: str,
+    output_filepath: Path,
+    colormap: str = "viridis",
 ) -> None:
     """Visualizes a heatmap matrix.
 
@@ -558,11 +567,12 @@ def plot_heatmap(  # noqa: PLR0913
         x_label (str): the label of the x-axis.
         y_label (str): the label of the y-axis.
         cbar_label (str): the label of the heatmap's colorbar.
+        colormap (str): the colormap to use for the heatmap.
         output_filepath (Path): filepath to save the visualization.
     """
     plt.figure(figsize=(35, 30))
 
-    plt.imshow(heatmap, cmap="viridis", aspect="auto")
+    plt.imshow(heatmap, cmap=colormap, aspect="auto")
     cbar = plt.colorbar()
     cbar.ax.tick_params(labelsize=40)
     cbar.set_label(cbar_label, size=40)
@@ -572,6 +582,7 @@ def plot_heatmap(  # noqa: PLR0913
     plt.ylabel(y_label, fontsize=40)
     plt.xticks(range(heatmap.shape[0]))
     plt.yticks(range(heatmap.shape[1]))
+    plt.grid(visible=False)
 
     plt.tight_layout()
     plt.savefig(output_filepath)
@@ -606,12 +617,14 @@ def compute_alignment_scores(
 def compute_token_consistency_matrix(
     config: DictConfig,
     model_outputs: dict[str, output.ModelOutput],
+    output_path: Path,
 ) -> npt.NDArray[np.float64]:
     """Creates a histogram over the scenario classes for the given batches.
 
     Args:
         config (DictConfig): encapsulates model analysis configuration parameters.
         model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+        output_path (Path): output path where visualization will be saved to.
 
     Returns:
         consistency_matrix (npt.NDArray[np.float64]): a matrix representing the consistency of each group.
@@ -621,12 +634,29 @@ def compute_token_consistency_matrix(
     group_modes = get_group_modes(tokenization_groups)
 
     consistency_matrix = np.zeros(shape=(num_tokens, num_tokens))
+    # Get a weight factor based on group sizes
+    # group_sizes = np.array(
+    #     [tokenization_groups[i].shape[0] if tokenization_groups[i] is not None else 0 for i in range(num_tokens)]
+    # )
+    # weight_factors = (group_sizes - group_sizes.min()) / (group_sizes.max() - group_sizes.min() + 1e-8)
+    #
     for (i, j), _ in np.ndenumerate(consistency_matrix):
         if tokenization_groups[i] is None or group_modes.get(j, None) is None:
             continue
         assigned_samples = tokenization_groups[i]
         scores = compute_alignment_scores(group_modes[j].tolist(), assigned_samples, config.consistency_measure)
         consistency_matrix[i, j] = scores.mean()
+
+    # Visualize the consistency matrix as a heatmap
+    plot_heatmap(
+        consistency_matrix,
+        title="Token Asignment Consistency",
+        x_label="Group Mode",
+        y_label="Token Group",
+        cbar_label="Average Consistency Index",
+        output_filepath=output_path / f"token_consistency_matrix_{config.consistency_measure}.png",
+        colormap=config.token_consistency_colormap,
+    )
     return consistency_matrix
 
 
@@ -673,12 +703,14 @@ def plot_uniqueness_index(
 def compute_group_uniqueness(
     config: DictConfig,
     model_outputs: dict[str, output.ModelOutput],
-) -> npt.NDArray[np.float64]:
+    output_path: Path,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Computes the uniquenes index and counts for each tokenization group w.r.t the scenario vocabulary.
 
     Args:
         config (DictConfig): encapsulates model analysis configuration parameters.
         model_outputs (dict[str, output.ModelOutput]): a list of model outputs per scenario.
+        output_path (Path): filepath to save the visualization.
 
     Returns:
         group_uniqueness (npt.NDArray[np.float64]): a matrix representing the uniqueness index of each group.
@@ -707,18 +739,32 @@ def compute_group_uniqueness(
         counts /= norm_value
         group_vocab_counts[n, unique] = counts
 
+    # Visualize results
+    plot_uniqueness_index(config, group_uniqueness, output_path)
+    plot_heatmap(
+        group_vocab_counts,
+        title="Group Uniqueness Heatmap",
+        x_label="Group",
+        y_label="Vocabulary",
+        cbar_label="Uniqueness Index",
+        output_filepath=output_path / f"group_uniqueness_counts_{config.normalize_counts}.png",
+        colormap=config.group_uniqueness_colormap,
+    )
+
     return group_uniqueness, group_vocab_counts
 
 
 def compute_intergroup_uniqueness(
     config: DictConfig,
     model_outputs: dict[str, output.ModelOutput],
+    output_path: Path,
 ) -> npt.NDArray[np.float64]:
     """Computes the uniquenes index and counts for each tokenization group w.r.t all other tokenization groups.
 
     Args:
         config (DictConfig): encapsulates model analysis configuration parameters.
         model_outputs (dict[str, output.ModelOutput]): a list of model outputs per scenario.
+        output_path (Path): filepath to save the visualization.
 
     Returns:
         intergroup_uniqueness (npt.NDArray[np.float64]): a matrix representing the consistency of each group.
@@ -734,4 +780,16 @@ def compute_intergroup_uniqueness(
         if group_i is None or group_j is None:
             continue
         intergroup_uniqueness[i, j] = compute_jaccard_index(set(group_i.tolist()), set(group_j.tolist()))
+
+    # Visualize the uniqueness matrix as a heatmap
+    plot_heatmap(
+        intergroup_uniqueness,
+        title="Intergroup Uniqueness Heatmap",
+        x_label="Group",
+        y_label="Group",
+        cbar_label="Uniqueness Index",
+        output_filepath=output_path / "intergroup_uniqueness.png",
+        colormap=config.intergroup_uniqueness_colormap,
+    )
+
     return intergroup_uniqueness
