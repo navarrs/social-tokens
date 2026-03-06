@@ -1,4 +1,7 @@
-"""Utility functions to perform model analysis. See 'docs/ANALYSIS.md' for details on usage."""
+"""Utility functions for model analysis.
+
+See `docs/ANALYSIS.md` for usage details.
+"""
 
 import json
 import pickle

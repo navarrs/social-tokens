@@ -19,12 +19,11 @@ from scenetokens.schemas.output_schemas import (
 class CausalSceneTokens(BaseModel):
     """CausalSceneTokens class.
 
-    This model is similar to SceneTokens (models/scenetokens.py) but with an additional head for classifying the causal
-    agents in the scene.
+    This model is similar to `SceneTokens` but adds a head for classifying causal agents in the scene.
     """
 
     def __init__(self, config: DictConfig) -> None:
-        """Initializes the CausalSceneTokens class.
+        """Initialize the CausalSceneTokens model.
 
         Args:
             config (DictConfig): Configuration for the model.
@@ -51,7 +50,7 @@ class CausalSceneTokens(BaseModel):
         # Trajectory decoder
         self.motion_decoder = self.config.motion_decoder
 
-        #  Agent Causality Classifier + Tokenizer
+        # Agent causality classifier and tokenizer
         self.agent_tokenizer = self.config.agent_tokenizer
         self.causal_classifier = nn.Sequential(nn.Linear(self.config.hidden_size, 2))
 
@@ -62,29 +61,32 @@ class CausalSceneTokens(BaseModel):
         self.print_and_get_num_params()
 
     def forward(self, batch: dict) -> ModelOutput:
-        """Model's forward pass.
-            B:  batch size
-            N:  max number agents in the scene
-            H:  history length
-            F:  future length
-            G:  GMM size
-            M:  number of predicted modes
-            P:  number of map polylines
-            D:  number of agent features + types
-            R:  number of road features + types
+        """Run the model forward pass.
+
+        Notation:
+            B: batch size
+            N: max number of non-ego agents in the scene
+            H: history length
+            F: future length
+            M: number of predicted modes
+            P: number of map polylines
+            L: number of points per polyline
+            Da: number of agent features
+            Dr: number of road features
             Qe: number of encoded queries
             Qc: number of classifier queries
             Qd: number of decoded queries
-            C:  number of classes
-            E:  hidden size
+            C: number of classes
+            E: hidden size
 
         Args:
-            batch (dict): dictionary containing the following input data batch:
+            batch (dict): dictionary containing the input data batch:
                 batch_size (int)
                 input_dict (dict): dictionary containing the scenario information
 
         Returns:
-            model_output (ModelOutput): model schema encapsulating all model outputs.
+            ModelOutput: model outputs containing scenario embeddings, trajectory decoder outputs, tokenization outputs,
+                causal outputs, ground-truth tensors, metadata, and optional scores.
         """
         inputs = batch["input_dict"]
         history_gt_trajs = inputs["obj_trajs"]
@@ -93,13 +95,13 @@ class CausalSceneTokens(BaseModel):
 
         center_gt_trajs = inputs["center_gt_trajs"][..., :2]
         center_gt_trajs_mask = inputs["center_gt_trajs_mask"].unsqueeze(-1)
-        # Ground truth trajectories shape: (B, F, 3) 3 is for x,y+mask
+        # Ground-truth trajectory shape: (B, F, 3), where 3 = (x, y, mask).
         future_ground_truth = torch.cat([center_gt_trajs, center_gt_trajs_mask], dim=-1)
 
         # Gathered input shapes
-        #   ego_agent: (B, H, D + mask)
-        #   other_agents: (B, N, H, D + mask)
-        #   roads: (B, P, R, D + mask)
+        #   ego_agent: (B, H, Da + 1)
+        #   other_agents: (B, H, N, Da + 1)
+        #   roads: (B, P, L, Dr + 1)
         ego_agent, other_agents, roads = BaseModel.gather_input(inputs)
 
         # Get scenario scores if available
@@ -109,16 +111,16 @@ class CausalSceneTokens(BaseModel):
         # trainable decoder query.
         scenario_embedder: ScenarioEmbedding = self.embed(ego_agent, other_agents, roads)
 
-        # Classify the causal agents
+        # Select per-agent context for causal classification.
         context = scenario_embedder.scenario_dec.value
         agent_context = context[:, : self.max_num_agents]
 
-        # Classify the causal agents
+        # Tokenize agent context for the causal branch.
         causal_tokenization_output: TokenizationOutput = self.agent_tokenizer(agent_context)
 
-        # Get causal output and use it as a mask for the post scenario embedding
-        # causal_pred shape (B, N, 2)
-        # causal_idxs shape (B, N)
+        # Causal output shapes:
+        #   causal_pred: (B, N, 2)
+        #   causal_idxs: (B, N)
         causal_pred = self.causal_classifier(agent_context)
         causal_pred_probs = F.softmax(causal_pred, dim=-1)
         causal_output = CausalOutput(
@@ -154,23 +156,25 @@ class CausalSceneTokens(BaseModel):
         )
 
     def embed(self, ego_agent: torch.Tensor, other_agents: torch.Tensor, roads: torch.Tensor) -> ScenarioEmbedding:
-        """Encodes scenario context.
+        """Encode scenario context from agents and map features.
+
+        Notation:
             B: batch size
-            N: max number agents in the scene
+            N: max number of non-ego agents in the scene
             H: history length
             P: number of map polylines
-            D: number of agent features + types
-            M: number of map features + types
+            L: number of points per polyline
+            Da: number of agent features
+            Dr: number of road features
+            E: hidden size
 
         Args:
-            ego_agent (torch.tensor(B, H, D+1)): tensor containing ego-agent features (D) and mask (1) information.
-            other_agents (torch.tensor(B, H, N, D+1)): tensor containing other agents features and mask information.
-            roads (torch.tensor(B, P, M, D+1)): tensor containing map information.
+            ego_agent (torch.Tensor): tensor with shape (B, H, Da + 1), containing ego-agent features and mask.
+            other_agents (torch.Tensor): tensor with shape (B, H, N, Da + 1), containing other-agent features and masks.
+            roads (torch.Tensor): tensor with shape (B, P, L, Dr + 1), containing map features and mask.
 
         Returns:
-            ScenarioEmbedding: a pydantic validator with
-                scenario_enc (torch.tensor(B, Q, H)): tensor containing the embedded scene.
-                scenario_dec (torch.tensor(B, Q, H)): tensor containing the refined embeddings of the scene.
+            ScenarioEmbedding: encoded and decoded scenario context used by the trajectory decoder.
         """
         # Ego information
         #   ego tensor shape: (B, H, D+1)
@@ -186,14 +190,14 @@ class CausalSceneTokens(BaseModel):
         #   agents tensor shape: (B, H, 1+N, D)
         #   agents mask shape: (B, H, 1+N)
         agent_masks = torch.cat((torch.ones_like(ego_masks.unsqueeze(-1)), other_agents_masks), dim=-1)
-        agent_masks_inv = (1.0 - agent_masks).to(torch.bool)  # only for agents.
+        agent_masks_inv = (1.0 - agent_masks).to(torch.bool)  # Masked agent entries.
         agents_tensor = torch.cat((ego_tensor.unsqueeze(2), other_agents_tensor), dim=2)
 
         batch_size, _, num_agents, _ = agents_tensor.shape
         # Encode agent information
         #   agents_emb shape: (B, H, 1+N, hidden_size)
-        #   agents_posemb shape: (1, 1, 1+N, hidden_size)
-        #   temporal_posembd shape: (1, H, 1, hidden_size)
+        #   agent_posemb shape: (1, 1, 1+N, hidden_size)
+        #   temporal_posemb shape: (1, H, 1, hidden_size)
         #   pos_emb shape: (1, H, 1+N, hidden_size)
         #   agents_emb shape: (B, H * (1+N), hidden_size)
         agents_emb = self.agent_encoder(agents_tensor)
@@ -202,18 +206,18 @@ class CausalSceneTokens(BaseModel):
         agents_emb = (agents_emb + pos_emb).view(batch_size, -1, self.config.hidden_size)
 
         # Encode map information
-        #   roads tensor shape: (B, P, M, D)
-        #   roads mask shape: (B, P, M)
-        #   roads emb shape: (B, P * M, hidden_size)
+        #   roads tensor shape: (B, P, L, Dr)
+        #   roads mask shape: (B, P, L)
+        #   roads emb shape: (B, P * L, hidden_size)
         roads_tensor = roads[:, : self.max_num_roads, :, : self.config.map_input_size]
         roads_mask = roads[:, : self.max_num_roads, :, -1]
         roads_inv = (1.0 - roads_mask).to(torch.bool)
         road_emb = self.road_encoder(roads_tensor).view(batch_size, -1, self.config.hidden_size)
         road_emb = self.selu(road_emb)
 
-        # Process mixed information using the perciever encoder
-        #   mixed_input_features shape: (B, H * (1+N) + P * M, hidden_size)
-        #   mixed_input_masks shape: (B, H * (1+N) + P * M)
+        # Process mixed information using the Perceiver encoder.
+        #   mixed_input_features shape: (B, H * (1+N) + P * L, hidden_size)
+        #   mixed_input_masks shape: (B, H * (1+N) + P * L)
         mixed_input_features = torch.concat([agents_emb, road_emb], dim=1)
         mixed_input_masks = torch.concat([agent_masks_inv.view(batch_size, -1), roads_inv.view(batch_size, -1)], dim=1)
         return self.scenario_embedder(mixed_input_features, mixed_input_masks)

@@ -23,16 +23,17 @@ from scenetokens.utils.constants import KALMAN_DIFFICULTY, MILLION, ModelStatus,
 
 
 class BaseModel(LightningModule, ABC):
-    """Scenario Model wrapper based on: https://lightning.ai/docs/pytorch/latest/common/lightning_module.html
+    """Scenario model wrapper based on the PyTorch Lightning `LightningModule` API.
 
-    The BaseModel class provides a template for implementing scenario modeling architectures. It defines the structure
-    of the model, including the forward pass, optimizer configuration, and training/validation/testing steps. It also
-    includes utility functions for gathering input data, computing metrics, and logging information during training and
-    evaluation.
+    Reference:
+        https://lightning.ai/docs/pytorch/latest/common/lightning_module.html
+
+    `BaseModel` defines shared structure for scenario modeling architectures, including the forward pass,
+    optimizer/scheduler configuration, train/validation/test steps, and metric logging utilities.
     """
 
     def __init__(self, config: DictConfig) -> None:
-        """Initializes the BaseModel class.
+        """Initialize the base model.
 
         Args:
             config (DictConfig): Configuration for the model.
@@ -61,10 +62,10 @@ class BaseModel(LightningModule, ABC):
 
     @abstractmethod
     def forward(self, batch: dict) -> ModelOutput:
-        """Model's forward pass.
+        """Run the model forward pass.
 
         Args:
-            batch (dict): dictionary containing the following input data batch:
+            batch (dict): dictionary containing the input data batch:
                 batch_size (int)
                 input_dict (dict): dictionary containing the scenario information
 
@@ -73,10 +74,10 @@ class BaseModel(LightningModule, ABC):
         """
 
     def configure_optimizers(self) -> dict[str, Any]:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Define and configure model optimizers and learning rate schedulers.
+        """Define the optimizer and learning-rate scheduler.
 
         Returns:
-            optimizer_config (dict): dictionary containing the optimizer and LR scheduler specified within the model's
+            optimizer_config (dict): dictionary containing the optimizer and learning-rate scheduler from the model
             configuration.
         """
         optimizer = self.optimizer(params=self.parameters())
@@ -90,7 +91,7 @@ class BaseModel(LightningModule, ABC):
         }
 
     def print_and_get_num_params(self) -> int:
-        """Returns the number of parameters in the model.
+        """Return the number of model parameters.
 
         Returns:
             total_parameters (int): total number of parameters in the model.
@@ -111,7 +112,7 @@ class BaseModel(LightningModule, ABC):
         return total_parameters
 
     def model_step(self, batch: dict, batch_idx: int, status: ModelStatus) -> torch.Tensor:
-        """Takes a model step, calculates the loss value and logs model outputs.
+        """Take one model step, compute loss, and log model outputs.
 
         Args:
             batch (dict): dictionary containing the batch information from the collate function.
@@ -140,8 +141,7 @@ class BaseModel(LightningModule, ABC):
             batch (dict): dictionary containing the batch information from the collate function.
             batch_idx (int): index of current batch.
 
-        Output
-        ------
+        Returns:
             loss (torch.Tensor): model's loss value.
         """
         return self.model_step(batch, batch_idx, status=ModelStatus.TRAIN)
@@ -153,8 +153,7 @@ class BaseModel(LightningModule, ABC):
             batch (dict): dictionary containing the batch parameters.
             batch_idx (int): index of current batch.
 
-        Output
-        ------
+        Returns:
             loss (torch.Tensor): model's loss value.
         """
         return self.model_step(batch, batch_idx, status=ModelStatus.VALIDATION)
@@ -166,72 +165,72 @@ class BaseModel(LightningModule, ABC):
             batch (dict): dictionary containing the batch parameters.
             batch_idx (int): index of current batch.
 
-        Output
-        ------
+        Returns:
             loss (torch.Tensor): model's loss value.
         """
         return self.model_step(batch, batch_idx, status=ModelStatus.TEST)
 
     @staticmethod
     def gather_input(inputs: dict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Gathers scenario information and masks for the ego-agent, other agents and map information.
+        """Gather scenario tensors and masks for ego, other agents, and map data.
+
+        Notation:
+            B: batch size
+            N: number of agents in a scene
+            H: history length
+            P: number of map polylines
+            L: number of points per polyline
+            Da: number of agent features
+            Dr: number of road features
 
         Args:
-            inputs (dict): dictionary containing scenario data according to the collate_fn() from
-                scenetokens/datasets/base_dataset.py
+            inputs (dict): dictionary containing scenario data according to
+                `collate_fn()` in `scenetokens/datasets/base_dataset.py`.
 
         Returns:
-            dict[str, torch.Tensor]: dictionary containing model input as:
-                'ego_in' (torch.tensor(B, H, D+1)): tensor containing ego-agent information
-                'agents_in' (torch.tensor(B, H, N, D+1)): tensor containing other agents information
-                'roads' (torch.tensor())
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                - ego_in: tensor with shape (B, H, Da + 1).
+                - agents_in: tensor with shape (B, H, N, Da + 1).
+                - roads: tensor with shape (B, P, L, Dr + 1).
         """
-        # Tensor dimensions:
-        #   B -> batch size
-        #   N -> max number agents in the scene
-        #   H -> history length
-        #   P -> number of map polylines
-        #   D -> number of agent features + types
-        #   M -> number of map features + types
-
-        # Agent trajectories shape: (B, N, H, D)
+        # Agent trajectories shape: (B, N, H, Da)
         agents_in = inputs["obj_trajs"]
-        # Index to predict shape: (B, 1, H, D)
+        # Index to predict shape: (B, 1, H, Da)
         index_to_predict = inputs["track_index_to_predict"].view(-1, 1, 1, 1).repeat(1, 1, *agents_in.shape[-2:])
-        # Ego agent input shape: (B, H, D)
+        # Ego-agent input shape: (B, H, Da)
         ego_in = torch.gather(agents_in, 1, index_to_predict).squeeze(1)
 
         # Agent masks shape: (B, N, H)
         agents_mask = inputs["obj_trajs_mask"]
-        # Index to predict shape: (B, 1, H, D)
+        # Index to predict shape: (B, 1, H)
         index_to_predict = inputs["track_index_to_predict"].view(-1, 1, 1).repeat(1, 1, agents_mask.shape[-1])
         # Ego mask shape: (B, H)
         ego_mask = torch.gather(agents_mask, 1, index_to_predict).squeeze(1)
 
-        # Combined agent trajectories shape: (B, N, H, D+1) -> (B, H, N, D+1)
+        # Combined agent trajectories shape: (B, N, H, Da + 1) -> (B, H, N, Da + 1)
         agents_in = torch.cat([agents_in, agents_mask.unsqueeze(-1)], dim=-1)
         agents_in = agents_in.transpose(1, 2)
-        # Combined ego trajectory shape: (B, H, D+1)
+        # Combined ego trajectory shape: (B, H, Da + 1)
         ego_in = torch.cat([ego_in, ego_mask.unsqueeze(-1)], dim=-1)
 
-        # Road information shape: (B, P, M, D)
+        # Road information shape: (B, P, L, D_r)
         roads = inputs["map_polylines"]
-        # Road mask shape: (B, P, M)
+        # Road mask shape: (B, P, L)
         roads_mask = inputs["map_polylines_mask"].unsqueeze(-1)
-        # Combined road information shape: (B, P, M, D+1)
+        # Combined road information shape: (B, P, L, D_r + 1)
         roads = torch.cat([roads, roads_mask], dim=-1)
         return ego_in, agents_in, roads
 
     @staticmethod
     def gather_scores(inputs: dict) -> ScenarioScores | None:
-        """Gathers scenario scores for individual and interaction safety.
+        """Gather scenario scores for individual and interaction safety.
 
         Args:
-            inputs (dict): dictionary containing scenario data according to the collate_fn() from
-                scenetokens/datasets/base_dataset.py
+            inputs (dict): dictionary containing scenario data according to `collate_fn()` in
+                `scenetokens/datasets/base_dataset.py`.
+
         Returns:
-            scenario_scores (ScenarioScores | None): pydantic validator containing scenario scores
-                information.
+            scenario_scores (ScenarioScores | None): Pydantic model containing scenario score information.
         """
         scenario_scores = None
         if "individual_agent_scores" in inputs and "interaction_agent_scores" in inputs:
@@ -270,12 +269,12 @@ class BaseModel(LightningModule, ABC):
         """Splits a metric dictionary by Kalman difficulty type.
 
         Args:
-            kalman_difficulties (np.ndarray(B)): array containing the kalman_difficulties for each ego in the batch.
+            kalman_difficulties (np.ndarray(B)): array containing Kalman difficulty values for each ego in the batch.
             metric_dict (dict): dictionary containing the computed metrics.
-            metric_keys (list[str]): list of metrics to split by kalman_difficulties.
+            metric_keys (list[str]): list of metrics to split by Kalman difficulty.
 
         Returns:
-            split_dict (dict): a dictionary of metrics split by kalman_difficulties.
+            split_dict (dict): dictionary of metrics split by Kalman difficulty.
         """
         split_dict = {}
         for kalman_bucket, (low, high) in KALMAN_DIFFICULTY.items():
@@ -337,8 +336,8 @@ class BaseModel(LightningModule, ABC):
             N: number of agents in the scene
             M: number of predicted modes
             F: future trajectory length
-            Dp: number of predicted trajectory dimensions (µ_x, µ_y, sig_x, sig_y, p)
-            Ds: number of state dimensions in the ground truth trajectory
+            Dp: number of predicted dimensions (mu_x, mu_y, sigma_x, sigma_y, p)
+            Dg: number of state dimensions in ground-truth trajectories
 
         Args:
             inputs (dict): dictionary containing input scenario information
@@ -350,13 +349,13 @@ class BaseModel(LightningModule, ABC):
             dict[str, npt.NDArray[np.float64]]: dictionary containing computed trajectory metrics
         """
         # Get ground truth trajectory and mask
-        gt_traj = inputs["center_gt_trajs"].unsqueeze(1)  # shape (B, 1, F, Ds)
+        gt_traj = inputs["center_gt_trajs"].unsqueeze(1)  # shape (B, 1, F, Dg)
         gt_traj_mask = inputs["center_gt_trajs_mask"].unsqueeze(1)  # shape (B, 1, F)
         center_gt_final_valid_idx = inputs["center_gt_final_valid_idx"]  # shape (B)
         index_to_predict = inputs["track_index_to_predict"].squeeze(-1)  # shape (B)
 
         # Gather other agents' ground truth trajectories and masks
-        other_trajs = inputs["obj_trajs_future_state"]  # shape (B, N, F, Ds)
+        other_trajs = inputs["obj_trajs_future_state"]  # shape (B, N, F, Dg)
         other_trajs_mask = inputs["obj_trajs_future_mask"]  # shape (B, N, F)
 
         # Get predicted trajectories and probabilities
@@ -365,10 +364,10 @@ class BaseModel(LightningModule, ABC):
 
         batch_size, num_modes = predicted_prob.shape
 
-        # Calculate metrics
+        # Compute trajectory metrics.
         center_gt_final_valid_idx = center_gt_final_valid_idx.view(-1, 1, 1).repeat(1, num_modes, 1).to(torch.int64)
 
-        # average and final displacement errors between the predicted and ground-truth trajectories
+        # Compute average and final displacement errors.
         ade, fde = metric_utils.compute_displacement_error(
             predicted_traj[:, :, :, :2],
             gt_traj[:, :, :, :2],
@@ -378,7 +377,7 @@ class BaseModel(LightningModule, ABC):
         min_ade, _ = ade.min(dim=-1)  # shape (B)
         min_fde, best_fde_idx = fde.min(dim=-1)  # both are shape (B)
 
-        # miss rate measures whether the final displacement is greater than a specified threshold
+        # Miss rate measures whether final displacement exceeds a threshold.
         miss_rate_all_modes = metric_utils.compute_miss_rate(fde)
         miss_rate_best_mode = metric_utils.compute_miss_rate(min_fde.unsqueeze(-1))
 
@@ -393,7 +392,7 @@ class BaseModel(LightningModule, ABC):
             "brierFDE": brier_fde.cpu().detach().numpy(),
         }
 
-        # NOTE: these metrics slow down training, so will only be calculated during evaluation.
+        # NOTE: These metrics slow down training, so compute them only during evaluation.
         if status in [ModelStatus.VALIDATION, ModelStatus.TEST]:
             collision_rate = metric_utils.compute_collision_rate(
                 predicted_traj[:, :, :, :2],
@@ -486,7 +485,7 @@ class BaseModel(LightningModule, ABC):
 
         Args:
             inputs (dict): dictionary containing input scenario information
-            outputs (ModelOutput): pydantic validator with model output information.
+            outputs (ModelOutput): Pydantic model with model output information.
             status (ModelStatus): status of the model, either of ModelStatus.TRAIN, ModelStatus.VALIDATION, or
                 ModelStatus.TEST.
 
@@ -511,7 +510,7 @@ class BaseModel(LightningModule, ABC):
             safety_metrics = BaseModel._compute_safety_metrics(safety_output)
             metric_dict.update(safety_metrics)
 
-        # TODO: review these metrics
+        # TODO: Review these metrics.
         # If training a model with a scenario classification head, log perplexity and mutual information.
         # tokenization_outputs = outputs.tokenization_output
         # if tokenization_outputs is not None:
@@ -520,11 +519,11 @@ class BaseModel(LightningModule, ABC):
         #     # NOTE: the selected class does not have a ground truth value.
         #     selected_scenario_class = scenario_class_probs.argmax(dim=-1)
 
-        #     # Perplexity will measure the uncertainty between the output probabilities w.r.t the selected class.
+        #     # Perplexity measures uncertainty in the output probabilities with respect to the selected class.
         #     perplexity = metric_utils.compute_perplexity(scenario_class_probs, selected_scenario_class)
         #     loss_dict["perplexity"] = perplexity.cpu().detach().numpy()
 
-        #     # Mutual information will measure how related are the scenario probability distributions and their classes
+        #     # Mutual information measures how related scenario probability distributions are to their classes.
         #     num_classes = scenario_class_probs.shape[-1]
         #     scenario_class_onehot = F.one_hot(selected_scenario_class, num_classes)
         #     mutual_information = metric_utils.compute_mutual_information(
@@ -536,31 +535,31 @@ class BaseModel(LightningModule, ABC):
     def log_info(
         self, inputs: dict, outputs: ModelOutput, loss: torch.Tensor, status: ModelStatus = ModelStatus.TRAIN
     ) -> None:
-        """Logs metric values after training and validation steps.
+        """Log metric values after training, validation, and test steps.
 
         Args:
             inputs (dict): dictionary containing input scenario information
-            outputs (ModelOutput): pydantic validator with model output information.
-            loss: (torch.Tensor): model's loss value.
+            outputs (ModelOutput): Pydantic model with model output information.
+            loss (torch.Tensor): model's loss value.
             status (ModelStatus): status of the model, either of ModelStatus.TRAIN, ModelStatus.VALIDATION, or
                 ModelStatus.TEST.
         """
-        # Split based on dataset
+        # Split metrics by dataset.
         metric_dict = BaseModel.compute_metrics(inputs, outputs, status)
         metric_list = list(metric_dict.keys())
 
-        # Separate the loss dictionary by sub-dataset name
+        # Split metric dictionary by sub-dataset name.
         dataset_names = inputs["dataset_name"]
         new_dict = BaseModel.split_by_dataset_name(dataset_names, metric_dict, metric_list)
         metric_dict.update(new_dict)
 
         if status == ModelStatus.VALIDATION and self.config.get("eval", False):
-            # Separate the loss dictionary by trajectory type
+            # Split metric dictionary by trajectory type.
             trajectory_types = inputs["trajectory_type"].cpu().numpy()
             new_dict = BaseModel.split_by_trajectory_type(trajectory_types, metric_dict, metric_list)
             metric_dict.update(new_dict)
 
-            # Split loss dict by kalman difficulty
+            # Split metric dictionary by Kalman difficulty.
             kalman_difficulties = inputs["kalman_difficulty"][:, -1].cpu().numpy()
             new_dict = BaseModel.split_by_kalman_difficulty(kalman_difficulties, metric_dict, metric_list)
             metric_dict.update(new_dict)
@@ -569,7 +568,7 @@ class BaseModel(LightningModule, ABC):
             new_dict = BaseModel.split_by_agent_type(agent_types, metric_dict, metric_list)
             metric_dict.update(new_dict)
 
-        # Take mean for each key but store original length before (useful for aggregation)
+        # Take mean for each key but store original length first (useful for aggregation).
         size_dict = {key: len(value) for key, value in metric_dict.items()}
         metric_dict = {key: np.mean(value) for key, value in metric_dict.items()}
 
@@ -580,7 +579,7 @@ class BaseModel(LightningModule, ABC):
             batch_size = size_dict[k]
             self.log(status.value + "/" + k, v, on_step=False, on_epoch=True, sync_dist=True, batch_size=batch_size)
 
-        # TODO: add support for visualization of scenarios
+        # TODO: Add support for visualization of scenarios.
         # if self.local_rank == 0 and status == 'val' and batch_idx == 0:
         #     img = visualization.visualize_prediction(batch, prediction)
         #     wandb.log({"prediction": [wandb.Image(img)]})

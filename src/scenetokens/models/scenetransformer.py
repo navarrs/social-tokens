@@ -1,3 +1,5 @@
+"""Code for the SceneTransformer model."""
+
 import torch
 from easydict import EasyDict
 from torch import nn
@@ -8,13 +10,17 @@ from scenetokens.schemas.output_schemas import ModelOutput, ScenarioEmbedding, T
 
 
 class SceneTransformer(BaseModel):
-    """Implementation of the SceneTransformer: https://arxiv.org/pdf/2106.08417.pdf"""
+    """SceneTransformer trajectory forecasting model.
+
+    Reference:
+        https://arxiv.org/pdf/2106.08417.pdf
+    """
 
     def __init__(self, config: EasyDict) -> None:
-        """Initializes the Wayformer class.
+        """Initialize the SceneTransformer model.
 
         Args:
-            config (DictConfig): Configuration for the model.
+            config (EasyDict): Configuration for the model.
         """
         super().__init__(config=config)
         # Agent and Road Encoders
@@ -44,27 +50,30 @@ class SceneTransformer(BaseModel):
         self.print_and_get_num_params()
 
     def forward(self, batch: dict) -> ModelOutput:
-        """Model's forward pass.
+        """Run the model forward pass.
+
+        Notation:
             B: batch size
-            N:  max number agents in the scene
-            H:  history length
-            F:  future length
-            G:  GMM size
-            M:  number of predicted modes
-            P:  number of map polylines
-            D:  number of agent features + types
-            R:  number of road features + types
+            N: max number of non-ego agents in the scene
+            H: history length
+            F: future length
+            M: number of predicted modes
+            P: number of map polylines
+            L: number of points per polyline
+            Da: number of agent features
+            Dr: number of road features
             Qe: number of encoded queries
             Qd: number of decoded queries
-            E:  hidden size
+            E: hidden size
 
         Args:
-            batch (dict): dictionary containing the following input data batch:
+            batch (dict): dictionary containing the input data batch:
                 batch_size (int)
                 input_dict (dict): dictionary containing the scenario information
 
         Returns:
-            model_output (ModelOutput): model schema encapsulating all model outputs.
+            ModelOutput: model outputs containing scenario embeddings, trajectory decoder outputs, ground-truth tensors,
+                metadata, and optional scenario scores.
         """
         inputs = batch["input_dict"]
         history_gt_trajs = inputs["obj_trajs"]
@@ -73,20 +82,19 @@ class SceneTransformer(BaseModel):
 
         center_gt_trajs = inputs["center_gt_trajs"][..., :2]
         center_gt_trajs_mask = inputs["center_gt_trajs_mask"].unsqueeze(-1)
-        # Ground truth trajectories shape: (B, F, 3) 3 is for x,y+mask
+        # Ground-truth trajectory shape: (B, F, 3), where 3 = (x, y, mask).
         future_ground_truth = torch.cat([center_gt_trajs, center_gt_trajs_mask], dim=-1)
 
         # Gathered input shapes
-        #   ego_agent: (B, H, D + mask)
-        #   other_agents: (B, N, H, D + mask)
-        #   roads: (B, P, R, D + mask)
+        #   ego_agent: (B, H, Da + 1)
+        #   other_agents: (B, H, N, Da + 1)
+        #   roads: (B, P, L, Dr + 1)
         ego_agent, other_agents, roads = BaseModel.gather_input(inputs)
 
         # Get scenario scores if available
         scenario_scores = BaseModel.gather_scores(inputs)
 
-        # Processes and embeddes historical information from self.encode() and produces a decoder embedding using a
-        # the trainable decoder query.
+        # Process and embed historical information using `self.embed()`.
         scenario_embedding: ScenarioEmbedding = self.embed(ego_agent, other_agents, roads)
 
         # Decode the scenario trajectories
@@ -105,23 +113,25 @@ class SceneTransformer(BaseModel):
         )
 
     def embed(self, ego_agent: torch.Tensor, other_agents: torch.Tensor, roads: torch.Tensor) -> ScenarioEmbedding:
-        """Encodes scenario context.
+        """Encode scenario context from agents and map features.
+
+        Notation:
             B: batch size
-            N: max number agents in the scene
+            N: max number of non-ego agents in the scene
             H: history length
             P: number of map polylines
-            D: number of agent features + types
-            M: number of map features + types
+            L: number of points per polyline
+            Da: number of agent features
+            Dr: number of road features
+            E: hidden size
 
         Args:
-            ego_agent (torch.tensor(B, H, D+1)): tensor containing ego-agent features (D) and mask (1) information.
-            other_agents (torch.tensor(B, H, N, D+1)): tensor containg other agents features and mask information.
-            roads (torch.tensor(B, P, M, D+1)): tensor containing map information.
+            ego_agent (torch.Tensor): tensor with shape (B, H, Da + 1), containing ego-agent features and mask.
+            other_agents (torch.Tensor): tensor with shape (B, H, N, Da + 1), containing other-agent features and masks.
+            roads (torch.Tensor): tensor with shape (B, P, L, Dr + 1), containing map features and mask.
 
         Returns:
-            ScenarioEmbedding: a pydantic validator with
-                scenario_enc (torch.tensor(B, Q, H)): tensor containing the embedded scene.
-                scenario_dec (torch.tensor(B, Q, H)): tensor containing the refined embeddings of the scene.
+            ScenarioEmbedding: encoded and decoded scenario context used by the trajectory decoder.
         """
         # Ego information
         #   ego tensor shape: (B, H, D+1)
@@ -137,23 +147,23 @@ class SceneTransformer(BaseModel):
         #   agents tensor shape: (B, H, 1+N, D)
         #   agents mask shape: (B, H, 1+N)
         agent_masks = torch.cat((torch.ones_like(ego_masks.unsqueeze(-1)), other_agents_masks), dim=-1)
-        agent_masks_inv = (1.0 - agent_masks).to(torch.bool)  # only for agents.
+        agent_masks_inv = (1.0 - agent_masks).to(torch.bool)  # Masked agent entries.
         agents_tensor = torch.cat((ego_tensor.unsqueeze(2), other_agents_tensor), dim=2)
 
         batch_size, _, num_agents, _ = agents_tensor.shape
         # Encode agent information
         #   agents_emb shape: (B, H, 1+N, hidden_size)
-        #   agents_posemb shape: (1, 1, 1+N, hidden_size)
-        #   temporal_posembd shape: (1, H, 1, hidden_size)
+        #   agent_posemb shape: (1, 1, 1+N, hidden_size)
+        #   temporal_posemb shape: (1, H, 1, hidden_size)
         #   pos_emb shape: (1, H, 1+N, hidden_size)
         agents_emb = self.agent_encoder(agents_tensor)
         agents_emb = self.selu(agents_emb)
         pos_emb = self.agents_positional_embedding[:, :, :num_agents] + self.temporal_positional_embedding
 
         # Encode map information
-        #   roads tensor shape: (B, P, M, D)
-        #   roads mask shape: (B, P, M)
-        #   roads emb shape: (B, P * M, hidden_size)
+        #   roads tensor shape: (B, P, L, Dr)
+        #   roads mask shape: (B, P, L)
+        #   roads emb shape: (B, P * L, hidden_size)
         roads_tensor = roads[:, : self.max_num_roads, :, : self.config.map_input_size]
         roads_mask = roads[:, : self.max_num_roads, :, -1]
         roads_inv = (1.0 - roads_mask).to(torch.bool).view(batch_size, -1)
