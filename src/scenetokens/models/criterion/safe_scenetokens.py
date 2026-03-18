@@ -5,6 +5,7 @@ from omegaconf import DictConfig
 
 from scenetokens.models.criterion import (
     Criterion,
+    FocalSafetyClassification,
     Reconstruction,
     SafetyClassification,
     TrajectoryPrediction,
@@ -24,11 +25,15 @@ class SafeSceneTokens(Criterion):
         # Classification losses for safety-agent predictions.
         config.safety_type = "individual"
         config.classification_weight = config.get("individual_classification_weight", 1.0)
-        self.individual_safety_loss = SafetyClassification(config)
+        self.individual_safety_loss = (
+            FocalSafetyClassification(config) if config.get("use_focal_loss", False) else SafetyClassification(config)
+        )
 
         config.safety_type = "interaction"
         config.classification_weight = config.get("interaction_classification_weight", 1.0)
-        self.interaction_safety_loss = SafetyClassification(config)
+        self.interaction_safety_loss = (
+            FocalSafetyClassification(config) if config.get("use_focal_loss", False) else SafetyClassification(config)
+        )
 
     def forward(self, model_output: ModelOutput) -> torch.Tensor:
         """Compute the SafeSceneTokens loss.

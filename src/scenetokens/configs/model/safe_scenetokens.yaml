@@ -56,6 +56,7 @@ config:
     _target_: scenetokens.models.criterion.safe_scenetokens.SafeSceneTokens
     config:
       reduction: 'mean'
+      num_classes: ${model.config.num_labels}
       reconstruction_weight: 1.0
       trajpred_weight: 1.0
       tokenization_weight: 1.0
@@ -67,5 +68,9 @@ config:
       alpha: null
 
       # Computed from class distribution using 'script/visualize_agent_score_distribution.py'
-      interaction_alpha: [0.500, 0.973, 0.934, 0.796, 0.693, 0.799, 0.912, 0.922, 0.972]
-      individual_alpha: [0.500, 0.982, 0.937, 0.800, 0.710, 0.772, 0.915, 0.915, 0.968]
+      # interaction_alpha: [0.500, 0.973, 0.934, 0.796, 0.693, 0.799, 0.912, 0.922, 0.972]
+      # individual_alpha: [0.500, 0.982, 0.937, 0.800, 0.710, 0.772, 0.915, 0.915, 0.968]
+
+      # Hand-crafted values
+      interaction_alpha: [0.3, 0.5, 0.5, 0.5, 0.6, 0.8, 0.8, 1.0, 1.0]
+      individual_alpha: [0.3, 0.5, 0.5, 0.5, 0.6, 0.8, 0.8, 1.0, 1.0]
