@@ -33,8 +33,12 @@ config:
   max_num_roads: ${model.config.max_num_roads}
   max_points_per_lane: ${model.config.max_points_per_lane}
   map_range: ${model.config.map_range}
+  manually_split_lane: ${model.config.manually_split_lane}
+  point_sampled_interval: ${model.config.point_sampled_interval}
+  num_points_each_polyline: ${model.config.num_points_each_polyline}
+  vector_break_dist_thresh: ${model.config.vector_break_dist_thresh}
   total_map_types: 20 # NOTE: not sure where the value is coming from
-  center_offset_of_map: [30.0, 0.0]
+  center_offset_of_map: ${model.config.center_offset_of_map}
 
   causal_labels_path: ${paths.causal_labels_path}
 

@@ -59,7 +59,7 @@ config:
     num_waypoint_map_polylines: 48
 
     # Fixed map region offset relative to the ego-agent (metres, [x_forward, y_lateral])
-    center_offset_of_map: [30.0, 0.0]
+    center_offset_of_map: ${model.config.center_offset_of_map}
 
     # Intention point clusters (.pkl produced by scripts/compute_mtr_intention_points.py).
     # Set to null to fall back to random initialisation with a warning.

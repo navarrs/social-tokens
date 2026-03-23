@@ -393,9 +393,14 @@ class BaseDataset(Dataset, ABC):
         ret_dict["center_gt_trajs_src"] = agent_data.agent_trajectories[track_index_to_predict]
 
         # Process the map information
-        map_dict = self.get_centered_map_data(
-            map_data=scenario.static_map_data, center_objects=center_objects, metadata=metadata
-        )
+        if self.config.get("manually_split_lane", False):
+            map_dict = self.get_manually_split_centered_map_data(
+                map_data=scenario.static_map_data, center_objects=center_objects, metadata=metadata
+            )
+        else:
+            map_dict = self.get_centered_map_data(
+                map_data=scenario.static_map_data, center_objects=center_objects, metadata=metadata
+            )
         ret_dict.update(map_dict)
 
         # Mask out unused attributes.
@@ -896,6 +901,144 @@ class BaseDataset(Dataset, ABC):
             "map_polylines_center": map_polylines_center,
         }
 
+    def get_manually_split_centered_map_data(
+        self, map_data: StaticMapData, center_objects: np.ndarray, metadata: ScenarioMetadata
+    ) -> dict[str, np.ndarray]:
+        """Get map information using geometric polyline splitting, centered w.r.t. center agents.
+
+        Splits the flat polyline array by detecting large inter-point distance breaks rather than using
+        per-feature-type index ranges. Used by MTR, which requires this segmentation style. Gated by config key
+        ``manually_split_lane: True``.
+
+        Notation:
+            C: number of center agents
+            K: number of geometrically-split polyline segments (before top-k selection)
+            N: num_points_each_polyline (fixed points per segment after chunking)
+            Dp: raw polyline feature dimension (7)
+            Dm: map output dimension (6 + 3 + total_map_types)
+
+        Args:
+            map_data (StaticMapData): Object containing all map information.
+            center_objects (np.ndarray(C, Dt)): NumPy array containing center agent state vectors.
+            metadata (ScenarioMetadata): Object containing scenario metadata.
+
+        Returns:
+            map_data_dict (dict): Dictionary containing centered map information:
+                map_polylines (np.ndarray(C, max_num_roads, N, Dm)): Centered map information.
+                map_polylines_mask (np.ndarray(C, max_num_roads, N)): Centered map mask.
+                map_polylines_center (np.ndarray(C, max_num_roads, 3)): Map center XYZ positions.
+        """
+        required_keys = ["point_sampled_interval", "vector_break_dist_thresh", "num_points_each_polyline"]
+        missing = [k for k in required_keys if self.config.get(k) is None]
+        if missing:
+            error_message = f"manually_split_lane is True but the following config keys are missing: {missing}"
+            raise ValueError(error_message)
+
+        if len(map_data.map_polylines) == 0:
+            print(f"Warning: empty HDMap {metadata.scenario_id}")
+            map_data.map_polylines = np.zeros((2, 7), dtype=np.float32)
+
+        num_center_objects = center_objects.shape[0]
+        point_sampled_interval = self.config.point_sampled_interval
+        vector_break_dist_thresh = self.config.vector_break_dist_thresh
+        num_points_each_polyline = self.config.num_points_each_polyline
+        num_of_src_polylines = self.config.max_num_roads
+
+        # Subsample the flat polyline array and detect geometric break points.
+        polylines = map_data.map_polylines.copy()
+        point_dim = polylines.shape[-1]
+        sampled = polylines[::point_sampled_interval]  # (P', Dp)
+        sampled_shift = np.roll(sampled, shift=1, axis=0)
+        buffer = np.concatenate((sampled[:, 0:2], sampled_shift[:, 0:2]), axis=-1)  # (P', 4)
+        buffer[0, 2:4] = buffer[0, 0:2]  # no break at the very first point
+        break_idxs = (np.linalg.norm(buffer[:, 0:2] - buffer[:, 2:4], axis=-1) > vector_break_dist_thresh).nonzero()[0]
+
+        # Chunk each segment into fixed-size windows of num_points_each_polyline.
+        polyline_list = np.array_split(sampled, break_idxs, axis=0)
+        ret_polylines = []
+        ret_polylines_mask = []
+        for segment in polyline_list:
+            if len(segment) == 0:
+                continue
+            for idx in range(0, len(segment), num_points_each_polyline):
+                chunk = segment[idx : idx + num_points_each_polyline]
+                cur = np.zeros((num_points_each_polyline, point_dim), dtype=np.float32)
+                cur_mask = np.zeros((num_points_each_polyline,), dtype=np.int32)
+                cur[: len(chunk)] = chunk
+                cur_mask[: len(chunk)] = 1
+                ret_polylines.append(cur)
+                ret_polylines_mask.append(cur_mask)
+
+        if ret_polylines:
+            batch_polylines = np.stack(ret_polylines, axis=0)  # (K, N, Dp)
+            batch_polylines_mask = np.stack(ret_polylines_mask, axis=0)  # (K, N)
+        else:
+            batch_polylines = np.zeros((0, num_points_each_polyline, point_dim), dtype=np.float32)
+            batch_polylines_mask = np.zeros((0, num_points_each_polyline), dtype=np.int32)
+
+        # Select the top-k closest polylines per center agent using world-frame distances.
+        center_offset = np.array(self.config.center_offset_of_map, dtype=np.float32)  # (2,)
+        center_heading = center_objects[:, 6]  # (C,)
+
+        if len(batch_polylines) > num_of_src_polylines:
+            # Compute each polyline's centroid in world coordinates: (K, 2)
+            polyline_center = np.sum(batch_polylines[:, :, 0:2], axis=1) / np.clip(
+                np.sum(batch_polylines_mask, axis=1)[:, None].astype(float), a_min=1.0, a_max=None
+            )
+            # Rotate center_offset into world frame for each center agent: (C, 1, 2) -> (C, 2)
+            center_offset_rot = data_utils.rotate_points_along_z(
+                points=np.tile(center_offset[None, None, :], (num_center_objects, 1, 1)),
+                angle=center_heading,
+            )[:, 0, :]  # (C, 2)
+            pos_of_map_centers = center_objects[:, 0:2] + center_offset_rot  # (C, 2)
+            dist = np.linalg.norm(pos_of_map_centers[:, None, :] - polyline_center[None, :, :], axis=-1)  # (C, K)
+            topk_idxs = np.argsort(dist, axis=1)[:, :num_of_src_polylines]  # (C, R)
+            map_polylines = batch_polylines[topk_idxs]  # (C, R, N, Dp)
+            map_polylines_mask = batch_polylines_mask[topk_idxs]  # (C, R, N)
+        else:
+            map_polylines = batch_polylines[None].repeat(num_center_objects, 0)  # (C, K, N, Dp)
+            map_polylines_mask = batch_polylines_mask[None].repeat(num_center_objects, 0)  # (C, K, N)
+            size_to_pad = num_of_src_polylines - map_polylines.shape[1]
+            map_polylines = np.pad(map_polylines, ((0, 0), (0, size_to_pad), (0, 0), (0, 0)))
+            map_polylines_mask = np.pad(map_polylines_mask, ((0, 0), (0, size_to_pad), (0, 0)))
+
+        # Transform polylines to agent-centric coordinates (translate + rotate).
+        num_center_objects, num_roads, num_pts, _ = map_polylines.shape
+        map_polylines[:, :, :, 0:3] -= center_objects[:, None, None, 0:3]
+        map_polylines[:, :, :, 0:2] = data_utils.rotate_points_along_z(
+            points=map_polylines[:, :, :, 0:2].reshape(num_center_objects, num_roads * num_pts, 2),
+            angle=-center_heading,
+        ).reshape(num_center_objects, num_roads, num_pts, 2)
+        map_polylines[:, :, :, 3:5] = data_utils.rotate_points_along_z(
+            points=map_polylines[:, :, :, 3:5].reshape(num_center_objects, num_roads * num_pts, 2),
+            angle=-center_heading,
+        ).reshape(num_center_objects, num_roads, num_pts, 2)
+
+        # Append previous-point XYZ features and zero out masked entries.
+        xy_pos_roll = np.roll(map_polylines[:, :, :, 0:3], shift=1, axis=-2)
+        xy_pos_roll[:, :, 0, :] = xy_pos_roll[:, :, 1, :]
+        map_polylines = np.concatenate((map_polylines, xy_pos_roll), axis=-1)  # (C, R, N, Dp+3)
+        map_polylines[map_polylines_mask == 0] = 0
+
+        # Compute polyline centers in agent-centric coordinates.
+        temp_sum = (map_polylines[..., 0:3] * map_polylines_mask[..., None].astype(float)).sum(axis=-2)
+        denom = np.clip(map_polylines_mask.sum(axis=-1).astype(float)[:, :, None], a_min=1.0, a_max=None)
+        map_polylines_center = temp_sum / denom  # (C, R, 3)
+
+        # One-hot encode map types and assemble final feature vector.
+        map_types = map_polylines[:, :, :, 6]
+        xy_pos_pre = map_polylines[:, :, :, 7:]  # (C, R, N, 3)
+        map_polylines = map_polylines[:, :, :, :6]  # (C, R, N, 6)
+        map_types = np.eye(self.config.total_map_types)[map_types.astype(int)]  # (C, R, N, total_map_types)
+        map_polylines = np.concatenate((map_polylines, xy_pos_pre, map_types), axis=-1)
+        map_polylines[map_polylines_mask == 0] = 0
+
+        return {
+            "map_polylines": map_polylines,
+            "map_polylines_mask": map_polylines_mask.astype(bool),
+            "map_polylines_center": map_polylines_center,
+        }
+
     def get_valid_segments(self, polyline_segment: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Gets the valid segments within a polyline segment.
 
@@ -960,7 +1103,6 @@ class BaseDataset(Dataset, ABC):
             output (list[dict[str, Any]]): list of dictionaries containing scenario information for each scenario in
                 the batch, with added scenario characterization information.
         """
-
         # TODO: Add SafeShift features here.
         # Add the trajectory difficulty
         data_utils.get_kalman_difficulty(output)

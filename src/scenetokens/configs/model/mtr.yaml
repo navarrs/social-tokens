@@ -61,7 +61,7 @@ config:
     num_waypoint_map_polylines: 48 # 128
 
     # Fixed map region offset relative to the ego-agent (metres, [x_forward, y_lateral])
-    center_offset_of_map: [30.0, 0.0]
+    center_offset_of_map: ${model.config.center_offset_of_map}
 
     # Intention point clusters (.pkl produced by scripts/compute_mtr_intention_points.py).
     # Set to null to fall back to random initialisation with a warning.
@@ -89,7 +89,24 @@ config:
   scheduler:
     _target_: torch.optim.lr_scheduler.LambdaLR
     _partial_: true
+    max_lr: 0.0002
+    steps_per_epoch: 1
+    epochs: ${model.config.max_epochs}
+    pct_start: 0.02
+    div_factor: 100.0
+    final_div_factor: 10
   learning_rate_sched: [22, 24, 26, 28]  # epochs at which lr is multiplied by lr_decay
   lr: 0.0001
   lr_decay: 0.5
   lr_clip: 0.000001
+
+  # MTR-specific hyperparameters that are not shared with the other models. 
+  grad_clip_norm: 1000.0 # large value to effectively disable gradient clipping
+  max_num_agents: 64
+  max_num_roads: 768
+  manually_split_lane: True # whether to split lane polylines at intersections 
+  point_sampled_interval: 1
+  num_points_each_polyline: 20
+  vector_break_dist_thresh: 1.0 # distance threshold for breaking polylines into segments (metres)
+  # eval_batch_size: 512 #32 #128
+  # train_batch_size: 256 #32 #128
