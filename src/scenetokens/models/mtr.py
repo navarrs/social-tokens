@@ -136,6 +136,37 @@ class MTR(BaseModel):
             scenario_scores=BaseModel.gather_scores(input_dict),
         )
 
+    def configure_optimizers(self) -> dict:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Define the optimizer and LambdaLR learning-rate scheduler.
+
+        Overrides :meth:`BaseModel.configure_optimizers` to use the step-based LambdaLR schedule from the
+        original UniTraj/MTR implementation instead of the default OneCycleLR.  The learning rate is
+        multiplied by ``lr_decay`` at each epoch listed in ``learning_rate_sched``, then clipped at
+        ``lr_clip``.
+
+        Returns:
+            optimizer_config (dict): dictionary containing the optimizer and learning-rate scheduler.
+        """
+        decay_steps = list(self.config.learning_rate_sched)
+        base_lr = self.config.lr
+
+        def lr_lbmd(cur_epoch: int) -> float:
+            cur_decay = 1.0
+            for decay_step in decay_steps:
+                if cur_epoch >= decay_step:
+                    cur_decay *= self.config.lr_decay
+            return max(cur_decay, self.config.lr_clip / base_lr)
+
+        optimizer = self.optimizer(params=self.parameters())
+        scheduler = self.scheduler(optimizer=optimizer, lr_lambda=lr_lbmd)
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": self.monitor,
+            },
+        }
+
     def model_step(self, batch: dict, batch_idx: int, status: ModelStatus) -> torch.Tensor:
         """Take one model step, compute loss, and log model outputs.
 

@@ -2,6 +2,8 @@ defaults:
   - default.yaml
 
 _target_: scenetokens.models.mtr.MTR
+
+# Hyperparameters mirrored from: https://github.com/vita-epfl/UniTraj/blob/main/unitraj/configs/method/MTR.yaml
 config:
   model_name: mtr
   base_tags: lr-${model.config.optimizer.lr}_batch-size-${model.config.train_batch_size}
@@ -26,16 +28,21 @@ config:
     num_layer_in_mlp_map: 5
     num_layer_in_pre_mlp_map: 3
 
-    # Transformer self-attention (global; local KNN requires CUDA extensions)
+    # Global attention
     d_model: 256
     num_attn_layers: 6
     num_attn_head: 8
     dropout_of_attn: 0.1
+
+    # Local attention (original local KNN requires CUDA extensions)
     use_local_attn: false
+    num_of_attn_neighbors: 7
 
   # Motion Decoder
+  # NOTE: d_model, num_base_map_polylines, num_waypoint_map_polylines reduced to fit memory constraints. These reduce
+  # the model from 65M -> 27M parameters and need about 22GB of memory.
   motion_decoder:
-    d_model: 256 # original value for reference 512. 256 reduces model from 65M -> 27M parameters and need about 22GB of memory.
+    d_model: 256 # 512
     map_d_model: 256         # separate (smaller) projection for map cross-attention
     num_attn_head: 8
     dropout_of_attn: 0.1
@@ -50,11 +57,11 @@ config:
     nms_dist_thresh: 2.5
 
     # Dynamic map collection: number of polylines from base region + waypoint region
-    num_base_map_polylines: 256
-    num_waypoint_map_polylines: 128
+    num_base_map_polylines: 64 # 256
+    num_waypoint_map_polylines: 48 # 128
 
     # Fixed map region offset relative to the ego-agent (metres, [x_forward, y_lateral])
-    center_offset_of_map: [-3.5, 0.0]
+    center_offset_of_map: [30.0, 0.0]
 
     # Intention point clusters (.pkl produced by scripts/compute_mtr_intention_points.py).
     # Set to null to fall back to random initialisation with a warning.
@@ -64,7 +71,7 @@ config:
     loss_weights:
       cls: 1.0
       reg: 1.0
-      vel: 0.2
+      vel: 0.5
 
   # Criterion
   criterion: null
@@ -73,18 +80,16 @@ config:
   optimizer:
     _target_: torch.optim.AdamW
     _partial_: true
-    lr: 0.0001
+    lr: ${model.config.lr}
     weight_decay: 0.01
     betas: [0.9, 0.95]
     eps: 0.0001
 
-  # Scheduler
+  # Scheduler (LambdaLR with step decay — consumed by MTR.configure_optimizers override)
   scheduler:
-    _target_: torch.optim.lr_scheduler.OneCycleLR
+    _target_: torch.optim.lr_scheduler.LambdaLR
     _partial_: true
-    max_lr: 0.0002
-    steps_per_epoch: 1
-    epochs: ${model.config.max_epochs}
-    pct_start: 0.02
-    div_factor: 100.0
-    final_div_factor: 10
+  learning_rate_sched: [22, 24, 26, 28]  # epochs at which lr is multiplied by lr_decay
+  lr: 0.0001
+  lr_decay: 0.5
+  lr_clip: 0.000001
