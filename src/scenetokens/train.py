@@ -19,7 +19,7 @@ from pytorch_lightning import Callback
 from torch.utils.data import DataLoader, Dataset
 
 from scenetokens import utils
-from scenetokens.utils.constants import DataSplits
+from scenetokens.utils.constants import DataSplits, SampleSelection
 
 
 if TYPE_CHECKING:
@@ -32,6 +32,26 @@ torch.set_float32_matmul_precision("medium")
 pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 utils.disable_mlflow_tls_verification()
+
+
+def _add_mtr_extras(cfg: DictConfig, train_loader: DataLoader) -> None:
+    """Resolve the MTR intention points file and compute it if missing.
+
+    Args:
+        cfg (DictConfig): full Hydra config, used to check for the intention points file path
+        train_loader (DataLoader): training dataloader, used to compute intention points if the file is missing.
+    """
+    if SampleSelection(cfg.sample_selection_strategy) != SampleSelection.ALL:
+        sample_intention_file = cfg.get("sample_selection_intention_points_filepath")
+        log.info("Sample selection active — overriding intention points file: %s", sample_intention_file)
+        cfg.model.config.intention_points_file = sample_intention_file
+        cfg.model.config.motion_decoder.intention_points_file = sample_intention_file
+
+    intention_file = cfg.model.config.motion_decoder.get("intention_points_file")
+    if intention_file is None or not Path(intention_file).exists():
+        log.info("MTR intention points not found — computing from training data ...")
+        saved_path = utils.compute_and_cache_intention_points(train_loader, cfg)
+        cfg.model.config.motion_decoder.intention_points_file = saved_path
 
 
 @utils.task_wrapper
@@ -74,11 +94,7 @@ def train(cfg: DictConfig) -> tuple[dict, dict]:
     )
 
     if cfg.model._target_ == "scenetokens.models.mtr.MTR":
-        intention_file = cfg.model.config.motion_decoder.get("intention_points_file")
-        if intention_file is None or not Path(intention_file).exists():
-            log.info("MTR intention points not found — computing from training data ...")
-            saved_path = utils.compute_and_cache_intention_points(train_loader, cfg)
-            cfg.model.config.motion_decoder.intention_points_file = saved_path
+        _add_mtr_extras(cfg, train_loader)
 
     log.info("Instantiating model <%s>", cfg.model._target_)
     model: LightningModule = hydra.utils.instantiate(cfg.model)
