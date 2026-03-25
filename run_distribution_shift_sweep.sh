@@ -14,7 +14,7 @@ Options:
   -d <devices>      Devices (e.g. 0 or 0,1)
                     (default: 0)
   -b <benchmarks>   Benchmark(s), comma-separated
-                    (default: waymo_causal_labeled, ego_safeshift_causal)
+                    (default: causal_agents, ego_safeshift_causal)
   -e <extra>        Extra identifier for sweep type (e.g. "test")
                     (default: "")
   -n                Dry run (print commands, do not execute)
@@ -25,7 +25,7 @@ Examples:
   $0
 
   # Test specific model and benchmark
-  $0 -m scenetokens -b waymo_causal_labeled
+  $0 -m scenetokens -b causal_agents
 
   # Multiple models and devices
   $0 -m wayformer,scenetransformer -d 0,1
@@ -53,7 +53,7 @@ DEFAULT_MODELS=(
 )
 DEFAULT_DEVICES="0"
 DEFAULT_BENCHMARKS=(
-  waymo_causal_labeled
+  causal_agents
   ego_safeshift_causal
 )
 dry_run=false

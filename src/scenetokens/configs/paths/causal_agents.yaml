@@ -13,24 +13,12 @@ val_data_tag: ["mini-causal-validation"]
 test_data_path: [
   "${paths.base_path}/processed/mini_causal/validation",
   "${paths.base_path}/processed/mini_causal/testing",
-  "${paths.base_path}/processed/remove_causal/validation",
-  "${paths.base_path}/processed/remove_causal/testing",
   "${paths.base_path}/processed/remove_noncausal/validation",
   "${paths.base_path}/processed/remove_noncausal/testing",
-  "${paths.base_path}/processed/remove_noncausalequal/validation",
-  "${paths.base_path}/processed/remove_noncausalequal/testing",
-  "${paths.base_path}/processed/remove_static/validation",
-  "${paths.base_path}/processed/remove_static/testing",
 ]
 test_data_tag: [
   "mini-causal-validation",
   "mini-causal-testing",
-  "remove-causal-validation",         # Perturbation: removes agents that are causal to the ego.
-  "remove-causal-testing",
   "remove-noncausal-validation",      # Perturbation: removes agents that are NOT causal to the ego.
   "remove-noncausal-testing",
-  "remove-noncausalequal-validation", # Perturbation: removes agents that are NOT causal to the ego, but removes an
-  "remove-noncausalequal-testing",    #               amount of agents equal to the number of causal agents.
-  "remove-static-validation",         # Perturbation: removes all agents that are not moving beyond a threshold.
-  "remove-static-testing",
 ]
