@@ -20,6 +20,7 @@ from .transformer import position_encoding_utils, transformer_decoder_layer
 # Map integer type codes (AgentType values) to MTR string names.
 # AgentType: TYPE_UNSET=0, TYPE_VEHICLE=1, TYPE_PEDESTRIAN=2, TYPE_CYCLIST=3
 _INT_TO_TYPE = {0: 'UNSET', 1: 'VEHICLE', 2: 'PEDESTRIAN', 3: 'CYCLIST'}
+_XY_VX_VY_IDXS = [0, 1, 7, 8]  # indices of (x, y, vx, vy) in the state vector
 
 
 class MTRDecoder(nn.Module):
@@ -525,7 +526,9 @@ class MTRDecoder(nn.Module):
 
     def get_decoder_loss(self, tb_pre_tag=''):
         """Compute the regression + classification loss for all decoder layers."""
-        center_gt_trajs = self.forward_ret_dict['center_gt_trajs'][..., :4]
+        # center_gt_trajs is (B, F, 9): [x, y, z, l, w, h, heading, vx, vy]
+        # extract (x, y, vx, vy) for the GMM and velocity losses
+        center_gt_trajs = self.forward_ret_dict['center_gt_trajs'][..., _XY_VX_VY_IDXS]
         center_gt_trajs_mask = self.forward_ret_dict['center_gt_trajs_mask']
         center_gt_final_valid_idx = self.forward_ret_dict['center_gt_final_valid_idx'].long()
         # assert center_gt_trajs.shape[-1] == 4, \
@@ -603,7 +606,9 @@ class MTRDecoder(nn.Module):
 
     def get_dense_future_prediction_loss(self, tb_pre_tag='', tb_dict=None, disp_dict=None):
         """Compute the dense future prediction auxiliary loss."""
-        obj_trajs_future_state = self.forward_ret_dict['obj_trajs_future_state'][..., :4]
+        # obj_trajs_future_state is (B, N, F, 9): [x, y, z, l, w, h, heading, vx, vy]
+        # extract (x, y, vx, vy) to match the dense head's output layout
+        obj_trajs_future_state = self.forward_ret_dict['obj_trajs_future_state'][..., _XY_VX_VY_IDXS]
         obj_trajs_future_mask = self.forward_ret_dict['obj_trajs_future_mask']
         pred_dense_trajs = self.forward_ret_dict['pred_dense_trajs']
 
