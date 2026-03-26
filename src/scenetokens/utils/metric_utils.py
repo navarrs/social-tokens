@@ -28,6 +28,22 @@ def compute_cosine_similarity(samples: NDArray[np.float64], target: NDArray[np.f
     return ((cosine_sim + 1.0) / 2.0).astype(np.float64)
 
 
+def compute_pairwise_cosine_similarity(samples: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Computes the pairwise cosine similarity matrix for a set of embeddings, normalized to [0, 1].
+
+    Args:
+        samples: array of shape (num_samples, embedding_dim).
+
+    Returns:
+        sim_matrix: array of shape (num_samples, num_samples) with values in [0, 1].
+    """
+    norms = np.linalg.norm(samples, axis=1, keepdims=True)
+    norms = np.where(norms < EPSILON, LARGE_FLOAT, norms)
+    normalized = samples / norms
+    cosine_sim = np.clip(normalized @ normalized.T, -1.0, 1.0)
+    return ((cosine_sim + 1.0) / 2.0).astype(np.float64)
+
+
 def compute_jaccard_index(a: set[int], b: set[int]) -> float:
     """Computes the Jaccard Index (Intersection over Union) between two sets.
 
