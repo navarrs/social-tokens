@@ -10,15 +10,15 @@ model:
     sample_selection: true
 
 selection_strategies:
-  # - random_drop
-  # - token_random_drop
-  # - simple_token_jaccard_drop
-  # - simple_token_hamming_drop
-  # - gumbel_token_jaccard_drop
-  # - gumbel_token_hamming_drop
-  # - kmeans_random_drop
-  # - simple_kmeans_cosine_drop
-  # - gumbel_kmeans_cosine_drop
+  - random_drop
+  - token_random_drop
+  - simple_token_jaccard_drop
+  - simple_token_hamming_drop
+  - gumbel_token_jaccard_drop
+  - gumbel_token_hamming_drop
+  - kmeans_random_drop
+  - simple_kmeans_cosine_drop
+  - gumbel_kmeans_cosine_drop
   - den_tp
 selection_strategy: null
 percentages_to_keep:
