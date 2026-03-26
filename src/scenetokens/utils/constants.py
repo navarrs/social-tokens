@@ -6,6 +6,7 @@ EPSILON = 1e-10
 LARGE_FLOAT = 1e10
 POSITION_DIMS = [2, 3]
 MIN_VALID_POINTS = 2
+INVALID_AGENT_ID = -1
 
 DEFAULT_COLLISION_THRESHOLDS: tuple[float, ...] = (0.1, 0.25, 0.5, 1.0)
 
@@ -30,6 +31,7 @@ class SampleSelection(Enum):
     KMEANS_RANDOM_DROP = "kmeans_random_drop"
     SIMPLE_KMEANS_COSINE_DROP = "simple_kmeans_cosine_drop"
     GUMBEL_KMEANS_COSINE_DROP = "gumbel_kmeans_cosine_drop"
+    DEN_TP = "den_tp"
 
 
 class DataSplits(Enum):

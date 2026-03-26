@@ -13,8 +13,8 @@ from omegaconf import DictConfig
 from sklearn.cluster import KMeans
 
 from scenetokens.schemas import output_schemas as output
-from scenetokens.utils.constants import SampleSelection
-from scenetokens.utils.metric_utils import compute_cosine_similarity
+from scenetokens.utils.constants import INVALID_AGENT_ID, SampleSelection
+from scenetokens.utils.metric_utils import compute_cosine_similarity, compute_pairwise_cosine_similarity
 from scenetokens.utils.model_analysis_utils import (
     compute_alignment_scores,
     get_group_modes,
@@ -427,6 +427,131 @@ def cosine_selection_per_cluster(config: DictConfig, model_outputs: dict[str, ou
     return selected_samples
 
 
+def _get_agent_count(model_output: output.ModelOutput) -> int:
+    """Returns the number of agent slots for a scenario, used as the Den-TP density proxy."""
+    agent_ids = np.array(model_output.agent_ids.value)
+    return int(np.count_nonzero(agent_ids != INVALID_AGENT_ID))
+
+
+def _greedy_submodular_select(
+    scenario_ids: NDArray[np.str_],
+    embeddings: NDArray[np.float64],
+    num_to_keep: int,
+) -> tuple[list[str], list[str]]:
+    """Greedy submodular selection using Den-TP's P(S_j) objective.
+
+    Iteratively selects samples that minimise:
+        P(S_j) = Σ_{i ∈ C_k} cos(emb_i, emb_j)  -  Σ_{i ∈ D_k/C_k} cos(emb_i, emb_j)
+                        selected similarity     -      unselected similarity
+
+    Minimising P(S_j) simultaneously rewards diversity w.r.t. already-selected samples (low similarity to C_k) and
+    coverage of the unselected pool (high similarity to D_k/C_k).
+
+    NOTE: This implementation uses the model embeddings as a proxy for the gradient features described in the paper,
+    since gradient computation requires live model access.
+
+    Args:
+        scenario_ids: array of scenario IDs.
+        embeddings: array of shape (N, d) — one embedding per scenario.
+        num_to_keep: number of samples to keep.
+
+    Returns:
+        (keep, drop): lists of scenario IDs.
+    """
+    num_scenarios = len(scenario_ids)
+    if num_to_keep >= num_scenarios:
+        return scenario_ids.tolist(), []
+    if num_to_keep <= 0:
+        return [], scenario_ids.tolist()
+
+    # Precompute full pairwise cosine similarity matrix (N x N)
+    sim_matrix = compute_pairwise_cosine_similarity(embeddings)
+
+    selected_mask = np.zeros(num_scenarios, dtype=bool)
+
+    # selected_sim[j] = Σ_{i ∈ C_k} cos(emb_i, emb_j) — starts at zero (C_k is empty)
+    selected_sim = np.zeros(num_scenarios, dtype=np.float64)
+
+    # unselected_sim[j] = Σ_{i ∈ D_k\C_k} cos(emb_i, emb_j) — initially all are unselected
+    unselected_sim = sim_matrix.sum(axis=0).copy()
+
+    for _ in range(num_to_keep):
+        # P(S_j) = selected_sim[j] - unselected_sim[j]. We want to select the sample with the lowest P(S_j) to maximize
+        # coverage and diversity.
+        p_scores = selected_sim - unselected_sim
+
+        # Exclude already selected samples by setting their P(S_j) to infinity so they won't be selected again.
+        p_scores[selected_mask] = np.inf
+
+        # Select the sample with the lowest P(S_j) score.
+        best_j = int(np.argmin(p_scores))
+        selected_mask[best_j] = True
+
+        # Incremental update: best_j leaves D_k\C_k and joins C_k
+        selected_sim += sim_matrix[best_j]
+        unselected_sim -= sim_matrix[best_j]
+
+    return scenario_ids[selected_mask].tolist(), scenario_ids[~selected_mask].tolist()
+
+
+def dentp_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput]) -> dict[str, Any]:
+    """Sample selection implementing the Den-TP algorithm: https://arxiv.org/pdf/2409.17385.
+
+    Partitions scenarios into density bins by agent count and applies greedy submodular selection within each bin using
+    decoder embeddings as feature representations. High-density partitions are processed first and given priority via a
+    dynamic budget allocation rule: n_k = min(|D_k|, floor(B / k)) where B is the remaining budget and k is the
+    partition index (high → low density).
+
+    Args:
+        config: encapsulates model analysis configuration parameters. Requires: percentage_to_keep (float),
+            density_interval (int, default 4), seed (int).
+        model_outputs: a dictionary containing model outputs per scenario.
+
+    Returns:
+        selected_samples: a dictionary containing the IDs of the samples to keep or drop.
+    """
+    scenario_ids, embeddings = get_scenario_dec_embeddings(model_outputs)
+    num_scenarios = len(scenario_ids)
+
+    agent_counts = np.array([_get_agent_count(model_outputs[sid]) for sid in scenario_ids], dtype=np.int64)
+
+    tau = int(config.get("density_interval", 4))
+    rho_min = agent_counts.min().item()
+
+    # Assign each scenario to a 1-indexed density bin
+    k_indices = ((agent_counts - rho_min) // tau + 1).astype(int)
+    max_k = k_indices.max().item()
+
+    # Build mapping: bin index → array of scenarios in scenario_ids_list
+    scenario_partitions: dict[int, NDArray[np.intp]] = {}
+    for k in range(1, max_k + 1):
+        scenario_idxs = np.where(k_indices == k)[0]
+        if len(scenario_idxs) > 0:
+            scenario_partitions[k] = scenario_idxs
+
+    keep_budget = int(config.percentage_to_keep * num_scenarios)
+    selected_samples: dict[Any, Any] = {}
+
+    # Process partitions in descending order (high density first)
+    for k in range(max_k, 0, -1):
+        if k not in scenario_partitions:
+            continue
+
+        partition_idxs = scenario_partitions[k]
+        partition_scenario_ids = scenario_ids[partition_idxs]
+        partition_embeddings = embeddings[partition_idxs]
+        partition_size = len(partition_idxs)
+
+        # Allocate budget for this partition: n_k = min(|D_k|, floor(B / k)) (DynamicSelect in Algorithm 1)
+        num_to_keep = min(partition_size, keep_budget // k)
+
+        keep, drop = _greedy_submodular_select(partition_scenario_ids, partition_embeddings, num_to_keep)
+        selected_samples[k] = _make_group_result(keep=keep, drop=drop)
+        keep_budget -= len(keep)
+    _aggregate_selected_samples(selected_samples)
+    return selected_samples
+
+
 def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput], output_path: Path) -> None:
     """Wrapper function which runs a specified sample selection strategy. A sample selection strategy produces a
     dictionary containing the a set of training scenarios to keep and to drop.
@@ -467,6 +592,8 @@ def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.Mod
         case SampleSelection.GUMBEL_KMEANS_COSINE_DROP:
             config.sorting_strategy = "gumbel"
             sample_selection = cosine_selection_per_cluster(config, model_outputs)
+        case SampleSelection.DEN_TP:
+            sample_selection = dentp_selection(config, model_outputs)
         case _:
             error_message = f"Unsupported selection strategy: {selection_strategy}"
             raise ValueError(error_message)

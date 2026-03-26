@@ -14,11 +14,11 @@ Options:
   -d <devices>      Devices (e.g. 0 or 0,1)
                     (default: 0)
   -s <strategies>   Strategy/strategies, comma-separated
-                    (default depends on -t: kmeans→all kmeans strategies, random→random_drop, st/causalst/safest→all token strategies)
+                    (default depends on -t: kmeans→all kmeans strategies, random→random_drop, st/causalst/safest→all token strategies, dentp→den_tp)
                     Custom strategies must be valid for the selected type.
   -p <percentages>  Percentage(s), comma-separated
                     (default: 0.45, 0.55, 0.65, 0.75, 0.85, 0.95)
-  -t <type>         Type of sample selection strategy (one of "st", "causalst", "safest", "kmeans", "random")
+  -t <type>         Type of sample selection strategy (one of "st", "causalst", "safest", "kmeans", "dentp", "random")
                     (default: "st")
   -n                Dry run (print commands, do not execute)
   -h                Show this help message
@@ -34,7 +34,7 @@ Examples:
   $0 -m wayformer,scenetransformer -d 0,1
 
   # Custom strategies
-  $0 -s token_random_drop,gumbel_token_hamming_drop,kmeans_random_drop
+  $0 -s token_random_drop,gumbel_token_hamming_drop
 
   # Custom percentages
   $0 -p 0.5,0.7,0.9
@@ -75,6 +75,9 @@ TOKEN_STRATEGIES=(
     simple_token_hamming_drop
     gumbel_token_jaccard_drop
     gumbel_token_hamming_drop
+)
+DEN_TP_STRATEGY=(
+    den_tp
 )
 DEFAULT_PERCENTAGES=(0.45 0.55 0.65 0.75 0.85 0.95)
 DEFAULT_SAMPLE_SELECTION_TYPE="st"
@@ -127,8 +130,11 @@ elif [[ "$selection_type" == "kmeans" ]]; then
 elif [[ "$selection_type" == "random" ]]; then
     selection_path="./meta/selection_strategies/random"
     valid_strategies=("${RANDOM_STRATEGIES[@]}")
+elif [[ "$selection_type" == "dentp" ]]; then
+    selection_path="./meta/selection_strategies/dentp"
+    valid_strategies=("${DEN_TP_STRATEGY[@]}")
 else
-    echo "Error: selection_type must be one of 'st', 'causalst', 'safest', 'kmeans', 'random', got '$selection_type'" >&2
+    echo "Error: selection_type must be one of 'st', 'causalst', 'safest', 'kmeans', 'dentp', 'random', got '$selection_type'" >&2
     exit 1
 fi
 

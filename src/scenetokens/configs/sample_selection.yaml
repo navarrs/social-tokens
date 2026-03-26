@@ -19,6 +19,7 @@ selection_strategies:
   - kmeans_random_drop
   - simple_kmeans_cosine_drop
   - gumbel_kmeans_cosine_drop
+  - den_tp
 selection_strategy: null
 percentages_to_keep:
   - 0.45
@@ -31,8 +32,13 @@ percentage_to_keep: null # percentage threshold to determine if dropping element
 sorting_strategy: 'simple'
 alignment_strategy: 'jaccard' # alignment metric to use 'jaccard' or 'hamming'
 min_percentage_per_class: 0.012 # percentage threshold to determine if dropping elements of a class
+
+# K-Means specific parameters
 clustering_strategy: 'kmeans' # clustering strategy to use for sample selection, currently only supports 'kmeans'
 num_clusters: 100 # number of clusters to use for k-means strategy
+
+# DenTP specific parameters
+density_interval: 4
 
 # General Parameters
 task_name: 'sample_selection' # Reference task name
@@ -59,6 +65,6 @@ paths:
   # uv run -m scenetokens.sample_selection model=causal_scenetokens ckpt_path=/data/driving/waymo/causal-benchmark-labeled/model_cache/causal-benchmark-labeled_causal-scenetokens_2026-02-05_15-05-18/ckpts/causal-benchmark-labeled_causal-scenetokens/epoch_095.ckpt
   # experiment_dir: causal-benchmark-labeled_causal-scenetokens_2026-02-05_15-05-18
 
-  # Wayformer (ckpt: epoch_093.ckpt) -- used for K-Means selection strategy
+  # Wayformer (ckpt: epoch_093.ckpt) -- used for K-Means selection strategy and DenTP selection strategy
   # uv run -m scenetokens.sample_selection model=wayformer ckpt_path=/data/driving/waymo/causal-benchmark-labeled/model_cache/causal-benchmark-labeled_wayformer_2026-02-19_01-23-56/ckpts/causal-benchmark-labeled_wayformer/epoch_093.ckpt
   experiment_dir: causal-benchmark-labeled_wayformer_2026-02-19_01-23-56
