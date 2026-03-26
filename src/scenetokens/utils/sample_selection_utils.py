@@ -555,9 +555,9 @@ def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.Mod
     dictionary containing the a set of training scenarios to keep and to drop.
 
     Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
-        output_path (Path): output path where visualization will be saved to.
+        config: encapsulates model analysis configuration parameters.
+        model_outputs: a dictionary containing model outputs per scenario.
+        output_path: output path where visualization will be saved to.
     """
     selection_strategy = SampleSelection(config.selection_strategy)
     match selection_strategy:

@@ -6,7 +6,7 @@ import torch.nn.functional as F  # noqa: N812
 from numpy.typing import NDArray
 from torch import nn
 
-from scenetokens.utils.constants import DEFAULT_COLLISION_THRESHOLDS, LARGE_FLOAT, SMALL_EPSILON
+from scenetokens.utils.constants import DEFAULT_COLLISION_THRESHOLDS, EPSILON, LARGE_FLOAT
 
 
 def compute_cosine_similarity(samples: NDArray[np.float64], target: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -20,9 +20,9 @@ def compute_cosine_similarity(samples: NDArray[np.float64], target: NDArray[np.f
         similarities (NDArray[np.float64]): per-sample cosine similarities in [0, 1].
     """
     norms = np.linalg.norm(samples, axis=1, keepdims=True)
-    norms = np.where(norms < SMALL_EPSILON, LARGE_FLOAT, norms)
+    norms = np.where(norms < EPSILON, LARGE_FLOAT, norms)
     target_norm = np.linalg.norm(target)
-    target_norm = target_norm if target_norm >= SMALL_EPSILON else LARGE_FLOAT
+    target_norm = target_norm if target_norm >= EPSILON else LARGE_FLOAT
     cosine_sim = np.clip((samples / norms) @ (target / target_norm), -1.0, 1.0)
     # Map from [-1, 1] to [0, 1]
     return ((cosine_sim + 1.0) / 2.0).astype(np.float64)
@@ -168,7 +168,7 @@ def compute_marginal_pdf(x: torch.Tensor, y: torch.Tensor, sigma: float = 0.1) -
     residuals = x - y.unsqueeze(0).unsqueeze(0)
     kernel_values = torch.exp(-0.5 * (residuals / sigma).pow(2))
     pdf = torch.mean(kernel_values, dim=1)
-    normalization = torch.sum(pdf, dim=1).unsqueeze(1) + SMALL_EPSILON
+    normalization = torch.sum(pdf, dim=1).unsqueeze(1) + EPSILON
     pdf = pdf / normalization
     return pdf, kernel_values
 
@@ -186,7 +186,7 @@ def compute_joint_pdf(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     # joint kernel shape: (B, C, C)
     joint_kernel_values = torch.matmul(x.transpose(1, 2), y)
     # normalization shape: (B, 1)
-    normalization = torch.sum(joint_kernel_values, dim=(1, 2)).view(-1, 1, 1) + SMALL_EPSILON
+    normalization = torch.sum(joint_kernel_values, dim=(1, 2)).view(-1, 1, 1) + EPSILON
     # pdf shape: (B, C, C)
     return joint_kernel_values / normalization
 
@@ -224,9 +224,9 @@ def compute_mutual_information(x: torch.Tensor, y: torch.Tensor, *, normalize: b
     pdf_xy = compute_joint_pdf(kernel_values_x, kernel_values_y)
 
     # Compute the entropies
-    H_x = -torch.sum(pdf_x * torch.log2(pdf_x + SMALL_EPSILON), dim=1)  # noqa: N806
-    H_y = -torch.sum(pdf_y * torch.log2(pdf_y + SMALL_EPSILON), dim=1)  # noqa: N806
-    H_xy = -torch.sum(pdf_xy * torch.log2(pdf_xy + SMALL_EPSILON), dim=(1, 2))  # noqa: N806
+    H_x = -torch.sum(pdf_x * torch.log2(pdf_x + EPSILON), dim=1)  # noqa: N806
+    H_y = -torch.sum(pdf_y * torch.log2(pdf_y + EPSILON), dim=1)  # noqa: N806
+    H_xy = -torch.sum(pdf_xy * torch.log2(pdf_xy + EPSILON), dim=(1, 2))  # noqa: N806
 
     # Compute the mutual information value
     mutual_information = H_x + H_y - H_xy
@@ -292,9 +292,9 @@ def compute_multiclass_accuracy(
     false_positives = confusion_matrix.sum(dim=1) - true_positives
     false_negatives = confusion_matrix.sum(dim=2) - true_positives
 
-    precision = true_positives / (true_positives + false_positives + SMALL_EPSILON)
-    recall = true_positives / (true_positives + false_negatives + SMALL_EPSILON)
-    f1_score = 2 * (precision * recall) / (precision + recall + SMALL_EPSILON)
+    precision = true_positives / (true_positives + false_positives + EPSILON)
+    recall = true_positives / (true_positives + false_negatives + EPSILON)
+    f1_score = 2 * (precision * recall) / (precision + recall + EPSILON)
 
     return precision.mean(dim=1), recall.mean(dim=1), f1_score.mean(dim=1)
 
@@ -314,13 +314,13 @@ def compute_accuracy(labels: torch.Tensor, predictions: torch.Tensor) -> tuple[t
     true_positives, _, false_positives, false_negatives = compute_binary_confusion_matrix(labels, predictions)
 
     # Precision
-    precision = true_positives / (true_positives + false_positives + SMALL_EPSILON)
+    precision = true_positives / (true_positives + false_positives + EPSILON)
 
     # Recall
-    recall = true_positives / (true_positives + false_negatives + SMALL_EPSILON)
+    recall = true_positives / (true_positives + false_negatives + EPSILON)
 
     # F1 score
-    f1_score = 2 * (precision * recall) / (precision + recall + SMALL_EPSILON)
+    f1_score = 2 * (precision * recall) / (precision + recall + EPSILON)
     return precision, recall, f1_score
 
 

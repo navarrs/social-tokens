@@ -2,7 +2,7 @@ from enum import Enum
 
 
 MILLION = 1e6
-SMALL_EPSILON = 1e-10
+EPSILON = 1e-10
 LARGE_FLOAT = 1e10
 POSITION_DIMS = [2, 3]
 MIN_VALID_POINTS = 2

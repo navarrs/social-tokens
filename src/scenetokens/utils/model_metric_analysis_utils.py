@@ -17,7 +17,7 @@ from matplotlib.patches import Rectangle
 from numpy.typing import NDArray
 from omegaconf import DictConfig
 
-from scenetokens.utils.constants import SMALL_EPSILON
+from scenetokens.utils.constants import EPSILON
 
 
 MODEL_NAME_MAP = {
@@ -62,7 +62,7 @@ STRATEGY_NAME_MAP = {
 
 def _relative_gap_pct(value: float | NDArray, reference: float | NDArray) -> float | NDArray:
     """Compute ``(value - reference) / |reference| * 100``. Works for scalars and numpy arrays."""
-    return ((value - reference) / (np.abs(reference) + SMALL_EPSILON)) * 100
+    return ((value - reference) / (np.abs(reference) + EPSILON)) * 100
 
 
 def _build_strategy_colormap(config: DictConfig, items: Iterable) -> dict:
@@ -1389,7 +1389,7 @@ def _distribution_shift_to_tex_table(  # noqa: PLR0912, PLR0913, PLR0915
                 gap = _relative_gap_pct(ood_val, id_val)
 
                 best_gap, worst_gap = gap_stats[metric]
-                denom = max(abs(worst_gap - best_gap), SMALL_EPSILON)
+                denom = max(abs(worst_gap - best_gap), EPSILON)
                 severity = np.clip(abs(gap - best_gap) / denom, 0, 1)
                 intensity = int(min_color_value + severity * (100 - min_color_value))
 
