@@ -1,14 +1,14 @@
 # @package _global_
 seed: 42 # Seed for random generators
-show_run_id: true
+show_run_id: false
 models_to_compare: [
   'autobot',
   'scenetransformer',
   'wayformer',
-  'mtr',
-  'causal-scenetokens',
-  'safe-scenetokens',
-  'scenetokens',
+  # 'mtr',
+  # 'causal-scenetokens',
+  # 'safe-scenetokens',
+  # 'scenetokens',
 ]
 
 trajectory_forecasting_metrics: [
@@ -37,8 +37,13 @@ other_metrics: [
 # Sample selection sweep analysis
 sample_selection_benchmark: 'causal-benchmark-labeled'
 sample_selection_files: [
-  "./meta/sample_selection_results/st_selector.csv",
-  "./meta/sample_selection_results/safest_selector.csv",
+  "./meta/sample_selection_results/baselines.csv",
+  "./meta/sample_selection_results/random.csv",
+  "./meta/sample_selection_results/kmeans.csv",
+  # "./meta/sample_selection_results/dentp.csv",
+  "./meta/sample_selection_results/st.csv",
+  # "./meta/sample_selection_results/causalst.csv",
+  # "./meta/sample_selection_results/safest.csv",
 ]
 sample_selection_splits_to_compare: [
   'test/waymo-mini-causal-testing',
@@ -46,18 +51,22 @@ sample_selection_splits_to_compare: [
 ]
 sample_selection_strategies_to_compare: [
   'random_drop',
+  'kmeans_random_drop',
+  'simple_kmeans_cosine_drop',
+  'gumbel_kmeans_cosine_drop',
   'token_random_drop',
   'simple_token_jaccard_drop',
   'gumbel_token_jaccard_drop',
   # 'simple_token_hamming_drop',
   # 'gumbel_token_hamming_drop',
+  # 'dentp',
 ]
 sample_retention_percentages: [0.45, 0.55, 0.65, 0.75, 0.85, 0.95]
 
 run_sample_selection_sweep_lineplot_analysis: false
 lineplot_colormap: tab10
 
-run_sample_selection_sweep_heatmap_analysis: false
+run_sample_selection_sweep_heatmap_analysis: true
 heatmap_colormap: RdYlGn_r
 highlight_color: dodgerblue
 add_rectangle_annotation: false
@@ -69,7 +78,7 @@ benchmark_colormap: null
 benchmark_splits_to_compare: []
 
 # Ego-safeshift analysis
-run_ego_safeshift_analysis: true
+run_ego_safeshift_analysis: false
 ego_safeshift_benchmark: 'ego-safeshift-causal-benchmark'
 ego_safeshift_filepath: "./meta/distribution_shift_results/ego_safeshift_benchmark.csv"
 ego_safeshift_colormap: colorblind

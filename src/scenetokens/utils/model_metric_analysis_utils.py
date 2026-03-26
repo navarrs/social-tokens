@@ -51,6 +51,17 @@ STRATEGY_NAME_MAP = {
     "simple_token_hamming_drop": "Token(SH)",
     "gumbel_token_jaccard_drop": "Token(GJ)",
     "gumbel_token_hamming_drop": "Token(GH)",
+    "kmeans_random_drop": "KMeans(R)",
+    "simple_kmeans_cosine_drop": "KMeans(SC)",
+    "gumbel_kmeans_cosine_drop": "KMeans(GC)",
+}
+
+
+# Maps CSV file stem prefixes to display labels used when multiple tokenizer files are active.
+FILE_KEY_LABEL_MAP = {
+    "st": "ST",
+    "causalst": "Causal-ST",
+    "safest": "Safe-ST",
 }
 
 
@@ -384,21 +395,115 @@ def plot_sample_selection_sweep_lineplot(config: DictConfig, log: Logger, output
 
 
 # ---------------------------------------------------------------------------
+# Heatmap helpers
+# ---------------------------------------------------------------------------
+
+
+def _identify_tokenizer_files(config: DictConfig, metrics_dfs: dict[str, pd.DataFrame]) -> set[str]:
+    """Return the set of file keys whose strategy sets overlap with at least one other file.
+
+    These are the "tokenizer files" (e.g. ``st``, ``causalst``, ``safest``) that contain the same
+    strategy names but with results from different tokenizers.
+    """
+    strategies = list(config.sample_selection_strategies_to_compare)
+    models = list(config.models_to_compare)
+    benchmark = config.sample_selection_benchmark
+
+    file_strategies: dict[str, set[str]] = {}
+    for key, df in metrics_dfs.items():
+        found: set[str] = set()
+        for model, strategy in product(models, strategies):
+            prefix = f"{benchmark}_{model}_{strategy}_"
+            if df["Name"].str.startswith(prefix).any():
+                found.add(strategy)
+        file_strategies[key] = found
+
+    tokenizer_keys: set[str] = set()
+    keys = list(file_strategies)
+    for i, ki in enumerate(keys):
+        for kj in keys[i + 1 :]:
+            if file_strategies[ki] & file_strategies[kj]:
+                tokenizer_keys.add(ki)
+                tokenizer_keys.add(kj)
+    return tokenizer_keys
+
+
+def _build_row_index(models: list[str], tokenizer_keys: list[str]) -> list[tuple[str, str | None]]:
+    """Return ``(model, tokenizer_key)`` pairs that define the heatmap rows.
+
+    When only one (or zero) tokenizer files are active the tokenizer dimension is collapsed and
+    ``tokenizer_key`` is ``None`` or the single key (no label suffix is added in that case).
+    """
+    if len(tokenizer_keys) <= 1:
+        tk = tokenizer_keys[0] if tokenizer_keys else None
+        return [(m, tk) for m in models]
+    return [(m, tk) for m in models for tk in tokenizer_keys]
+
+
+def _lookup_strategy_value(  # noqa: PLR0913
+    metrics_dfs: dict[str, pd.DataFrame],
+    tokenizer_keys: set[str],
+    run_name_prefix: str,
+    tokenizer_key: str | None,
+    column: str,
+    *,
+    multi_tokenizer: bool,
+) -> float | None:
+    """Return the first non-NaN metric value matching ``run_name_prefix`` in the appropriate dataframe(s).
+
+    When ``multi_tokenizer`` is True and the strategy lives in a tokenizer file, only the dataframe
+    for ``tokenizer_key`` is searched so results from different tokenizers are never mixed.
+    Non-tokenizer strategies are searched across all non-tokenizer dataframes.
+    """
+    if multi_tokenizer and tokenizer_key is not None:
+        # Determine whether this strategy is tokenizer-specific by checking if the prefix exists
+        # in any tokenizer file other than the current one.
+        is_tokenizer_strategy = any(
+            metrics_dfs[k]["Name"].str.startswith(run_name_prefix).any()
+            for k in tokenizer_keys
+            if k != tokenizer_key and k in metrics_dfs
+        ) or (tokenizer_key in metrics_dfs and metrics_dfs[tokenizer_key]["Name"].str.startswith(run_name_prefix).any())
+
+        search_dfs: dict[str, pd.DataFrame]
+        if is_tokenizer_strategy and tokenizer_key in metrics_dfs:
+            search_dfs = {tokenizer_key: metrics_dfs[tokenizer_key]}
+        else:
+            search_dfs = {k: v for k, v in metrics_dfs.items() if k not in tokenizer_keys}
+    else:
+        search_dfs = metrics_dfs
+
+    for df in search_dfs.values():
+        matches = df[df["Name"].str.startswith(run_name_prefix)]
+        if not matches.empty and column in matches.columns:
+            val = matches.iloc[0][column]
+            if pd.notna(val):
+                return float(val)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Heatmap functions
 # ---------------------------------------------------------------------------
 
 
 def _plot_sample_selection_sweep_heatmap(  # noqa: PLR0912, PLR0915
-    config: DictConfig, log: Logger, output_path: Path, metrics_df: pd.DataFrame, suffix: str = ""
+    config: DictConfig, log: Logger, output_path: Path, metrics_dfs: dict[str, pd.DataFrame], suffix: str = ""
 ) -> None:
     """Plot heatmaps comparing sample selection strategies across retention percentages for each (model, split, metric).
+
+    Searches across all provided dataframes to find each (model, strategy, pct) combination,
+    accommodating different naming suffixes used in different source files (e.g. ``_kmeans``).
+
+    When multiple tokenizer files are active (e.g. ``st``, ``causalst``, ``safest``), rows expand to
+    ``(model, tokenizer)`` pairs.  Non-tokenizer strategies (random, kmeans, dentp) repeat the same
+    value across all tokenizer rows for the same model.
 
     Args:
         config (DictConfig): encapsulates model analysis configuration parameters.
         log (Logger): Logger for logging analysis information.
         output_path (Path): Directory to save the generated plots.
-        metrics_df (pd.DataFrame): DataFrame containing the metrics data.
-        suffix (str): Suffix to append to output filenames to distinguish different metrics files.
+        metrics_dfs (dict[str, pd.DataFrame]): DataFrames keyed by file stem prefix (e.g. ``random``, ``st``).
+        suffix (str): Suffix to append to output filenames.
     """
     output_path = output_path / "sample_selection_heatmaps"
     output_path.mkdir(parents=True, exist_ok=True)
@@ -408,9 +513,22 @@ def _plot_sample_selection_sweep_heatmap(  # noqa: PLR0912, PLR0915
 
     log.info("Plotting sample selection sweep heatmaps for metrics: %s", metrics)
     retention_pcts = list(map(float, config.sample_retention_percentages))
-    models = config.models_to_compare
-    strategies = config.sample_selection_strategies_to_compare
+    models = list(config.models_to_compare)
+    strategies = list(config.sample_selection_strategies_to_compare)
     highlight_color = config.get("highlight_color", "dodgerblue")
+
+    tokenizer_keys = _identify_tokenizer_files(config, metrics_dfs)
+    # Preserve the order in which tokenizer files appear in the config so output is deterministic.
+    ordered_tokenizer_keys = [k for k in metrics_dfs if k in tokenizer_keys]
+    multi_tokenizer = len(ordered_tokenizer_keys) > 1
+    row_index = _build_row_index(models, ordered_tokenizer_keys)
+    num_rows = len(row_index)
+
+    def _row_label(model: str, tk: str | None) -> str:
+        base = MODEL_NAME_MAP.get(model, model)
+        if multi_tokenizer and tk is not None:
+            return f"{base} ({FILE_KEY_LABEL_MAP.get(tk, tk)})"
+        return base
 
     for split in config.sample_selection_splits_to_compare:
         subsplit = split.split("/")[-1]
@@ -422,31 +540,34 @@ def _plot_sample_selection_sweep_heatmap(  # noqa: PLR0912, PLR0915
             heatmap_data = {}
             all_values = []
 
-            # Build strategy heatmaps
+            # Build strategy heatmaps — search appropriate dataframe(s) per (model, tokenizer, strategy)
             for pct in retention_pcts:
-                data = np.full((len(models), len(strategies)), np.nan)
-                for i, model in enumerate(models):
+                data = np.full((num_rows, len(strategies)), np.nan)
+                for i, (model, tk) in enumerate(row_index):
                     for j, strategy in enumerate(strategies):
-                        run_name = f"{config.sample_selection_benchmark}_{model}_{strategy}_{pct}"
-                        row = metrics_df[metrics_df["Name"] == run_name]
-                        if not row.empty and column in row.columns:
-                            val = row.iloc[0][column]
+                        run_name_prefix = f"{config.sample_selection_benchmark}_{model}_{strategy}_{pct}"
+                        val = _lookup_strategy_value(
+                            metrics_dfs, tokenizer_keys, run_name_prefix, tk, column, multi_tokenizer=multi_tokenizer
+                        )
+                        if val is not None:
                             data[i, j] = val
                             all_values.append(val)
                 heatmap_data[pct] = data
 
-            # Base-only heatmap
-            base_data = np.full((len(models), 1), np.nan)
-            base_values = {}
-            for i, model in enumerate(models):
+            # Base-only heatmap — exact name match, repeated across tokenizer rows for the same model
+            base_data = np.full((num_rows, 1), np.nan)
+            base_values: dict[int, float | None] = {}
+            for i, (model, _tk) in enumerate(row_index):
                 base_name = f"{config.sample_selection_benchmark}_{model}"
-                row = metrics_df[metrics_df["Name"] == base_name]
-                if not row.empty and column in row.columns:
-                    val = row[column].min()
-                    base_data[i, 0] = val
-                    base_values[i] = val
-                    all_values.append(val)
-                else:
+                for df in metrics_dfs.values():
+                    row = df[df["Name"] == base_name]
+                    if not row.empty and column in row.columns:
+                        val = float(row[column].min())
+                        base_data[i, 0] = val
+                        base_values[i] = val
+                        all_values.append(val)
+                        break
+                if i not in base_values:
                     base_values[i] = None
 
             if not all_values:
@@ -461,11 +582,13 @@ def _plot_sample_selection_sweep_heatmap(  # noqa: PLR0912, PLR0915
             fig, axes = plt.subplots(
                 1,
                 num_pcts + 1,
-                figsize=(3.8 * num_pcts + 2.2, 0.65 * len(models) + 2.2),
+                figsize=(3.8 * num_pcts + 2.2, 0.65 * num_rows + 2.2),
                 squeeze=False,
                 gridspec_kw={"width_ratios": [1] * num_pcts + [0.45]},
             )
             axes = axes[0]
+
+            row_labels = [_row_label(m, tk) for m, tk in row_index]
 
             # Plot strategy heatmaps
             for k, (ax, pct) in enumerate(zip(axes[:num_pcts], retention_pcts, strict=False)):
@@ -481,20 +604,20 @@ def _plot_sample_selection_sweep_heatmap(  # noqa: PLR0912, PLR0915
                 )
 
                 if k == 0:
-                    ax.set_yticks(range(len(models)))
-                    ax.set_yticklabels([MODEL_NAME_MAP.get(m, m) for m in models])
+                    ax.set_yticks(range(num_rows))
+                    ax.set_yticklabels(row_labels)
                     ax.tick_params(axis="y", pad=6)
                 else:
                     ax.set_yticks([])
 
                 # Highlight best per row
                 for i in range(data.shape[0]):
-                    row = data[i]
-                    if np.all(np.isnan(row)):
+                    row_data = data[i]
+                    if np.all(np.isnan(row_data)):
                         continue
 
-                    j = np.nanargmin(row)
-                    best_val = row[j]
+                    j = np.nanargmin(row_data)
+                    best_val = row_data[j]
                     base_val = base_values.get(i)
                     edge_color, marker_color = "black", "black"
                     if base_val is not None and best_val < base_val:
@@ -507,7 +630,7 @@ def _plot_sample_selection_sweep_heatmap(  # noqa: PLR0912, PLR0915
 
                 # Subtle grid
                 ax.set_xticks(np.arange(-0.5, len(strategies), 1), minor=True)
-                ax.set_yticks(np.arange(-0.5, len(models), 1), minor=True)
+                ax.set_yticks(np.arange(-0.5, num_rows, 1), minor=True)
                 ax.grid(which="minor", color="black", alpha=1, linewidth=1)
                 ax.grid(which="major", color="black", alpha=0.01, linewidth=1)
                 ax.tick_params(which="minor", bottom=False, left=False)
@@ -523,7 +646,7 @@ def _plot_sample_selection_sweep_heatmap(  # noqa: PLR0912, PLR0915
             ax_base.grid(which="minor", color="black", alpha=1, linewidth=1)
             ax_base.grid(which="major", color="black", alpha=0.01, linewidth=1)
             ax_base.set_xticks(np.arange(-0.5, 1, 1), minor=True)
-            ax_base.set_yticks(np.arange(-0.5, len(models), 1), minor=True)
+            ax_base.set_yticks(np.arange(-0.5, num_rows, 1), minor=True)
 
             _add_heatmap_colorbar(fig, im)
 
@@ -887,9 +1010,7 @@ def plot_sample_selection_sweep_heatmap(config: DictConfig, log: Logger, output_
     if metrics_dataframes is None:
         return
 
-    for suffix, metrics_df in metrics_dataframes.items():
-        log.info("Processing sample selection sweep heatmaps for file suffix: %s", suffix)
-        _plot_sample_selection_sweep_heatmap(config, log, output_path, metrics_df, f"_{suffix}")
+    _plot_sample_selection_sweep_heatmap(config, log, output_path, metrics_dataframes)
 
     # If multiple metrics files are available, create heatmaps showing gap to baseline across selectors
     if len(metrics_dataframes) > 1:
