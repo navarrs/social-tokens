@@ -118,12 +118,6 @@ def main(config: DictConfig) -> float | None:
         log.info("Total time: %s seconds", time() - start)
         log.info("Process completed!")
 
-    # If more than one experiment is being analyzed, we also run a comparative analysis across the experiments.
-    if len(analysis_paths) > 1:
-        log.info("Running comparative analysis across experiments...")
-        analysis_path = Path(config.output_path) / "tokenization" / "comparative-analysis"
-        utils.run_comparative_analysis(analysis_paths, analysis_path)
-
 
 if __name__ == "__main__":
     main()  # pyright: ignore[reportCallIssue]
