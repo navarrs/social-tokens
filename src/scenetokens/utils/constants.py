@@ -30,6 +30,7 @@ class SampleSelection(Enum):
     KMEANS_RANDOM_DROP = "kmeans_random_drop"
     SIMPLE_KMEANS_COSINE_DROP = "simple_kmeans_cosine_drop"
     GUMBEL_KMEANS_COSINE_DROP = "gumbel_kmeans_cosine_drop"
+    DEN_TP = "den_tp"
 
 
 class DataSplits(Enum):

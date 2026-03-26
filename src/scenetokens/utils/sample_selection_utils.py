@@ -29,13 +29,17 @@ from scenetokens.utils.model_analysis_utils import (
 _GUMBEL_LARGE_EXPONENT: float = 8.0
 
 
-def _aggregate_selected_samples(selected_samples: dict[Any, Any]) -> None:
+def _aggregate_selected_samples(selected_samples: dict[Any, Any]) -> dict[str, Any]:
     """Helper function to aggregate the sample IDs to keep and drop across groups (tokens or clusters) into a single
-    list of samples to keep and drop. Mutates the input dictionary in place.
+    list of samples to keep and drop.
 
     Args:
         selected_samples: a dictionary containing the sample selection results per group.
+
+    Returns:
+        selected_samples: a dictionary containing the aggregated sample selection results.
     """
+    # TODO: refactor to avoid use of `Any` in the signature.
     keep = []
     drop = []
     for samples in selected_samples.values():
@@ -43,12 +47,14 @@ def _aggregate_selected_samples(selected_samples: dict[Any, Any]) -> None:
         drop += samples["drop"]
     selected_samples["keep"] = keep
     selected_samples["drop"] = drop
-    selected_samples["num_to_keep"] = len(keep)
-    selected_samples["num_to_drop"] = len(drop)
+    selected_samples["num_to_keep"] = len(selected_samples["keep"])
+    selected_samples["num_to_drop"] = len(selected_samples["drop"])
+    return selected_samples
 
 
 def _make_group_result(keep: list[Any], drop: list[Any]) -> dict[str, Any]:
     """Constructs a per-group selection result dict."""
+    # TODO: refactor to avoid use of `Any` in the signature.
     return {"keep": keep, "num_to_keep": len(keep), "drop": drop, "num_to_drop": len(drop)}
 
 
@@ -58,10 +64,10 @@ def _compute_proportional_number_to_drop(
     """Computes the proportional number of samples to drop for a group.
 
     Args:
-        total_number_to_drop: the total number of samples to drop across all groups.
-        percentage: the percentage of samples in the group.
-        min_percentage: the min percentage threshold for a group to be considered valid for dropping samples.
-        total_valid_percentage: the total percentage of samples across all valid groups.
+        total_number_to_drop (int): the total number of samples to drop across all groups.
+        percentage (float): the percentage of samples in the group.
+        min_percentage (float): the min percentage threshold for a group to be considered valid for dropping samples.
+        total_valid_percentage (float): the total percentage of samples across all valid groups.
 
     Returns:
         0 if percentage does not exceed min_percentage, favoring underrepresented groups by flooring rather than
@@ -74,8 +80,8 @@ def random_selection(config: DictConfig, model_outputs: dict[str, output.ModelOu
     """A sample selection strategy that randomly keeps a specified percentage of all scenarios.
 
     Args:
-        config: encapsulates model analysis configuration parameters.
-        model_outputs: a dictionary containing model outputs per scenario.
+        config (DictConfig): encapsulates model analysis configuration parameters.
+        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
 
     Returns:
         A dictionary containing the IDs of the samples (scenarios) to keep or drop for training.
@@ -96,11 +102,12 @@ def random_selection_per_token(config: DictConfig, model_outputs: dict[str, outp
     more than a desired minimum percentage.
 
     Args:
-        config: encapsulates model analysis configuration parameters.
-        model_outputs: a dictionary containing model outputs per scenario.
+        config (DictConfig): encapsulates model analysis configuration parameters.
+        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
 
     Returns:
-        selected_samples: a dictionary containing the IDs of the samples (scenarios) to keep or drop for training.
+        selected_samples (dict[str, Any]): a dictionary containing the IDs of the samples (scenarios) to keep or drop
+            for training.
     """
     scenario_ids, scenario_classes, _, _ = get_scenario_classes_best_mode(model_outputs)
     num_scenarios, _ = scenario_classes.shape
@@ -135,8 +142,7 @@ def random_selection_per_token(config: DictConfig, model_outputs: dict[str, outp
         else:
             selected_samples[scenario_class] = _make_group_result(keep=scenario_ids_in_class, drop=[])
 
-    _aggregate_selected_samples(selected_samples)
-    return selected_samples
+    return _aggregate_selected_samples(selected_samples)
 
 
 def weighted_sorting(
@@ -145,13 +151,14 @@ def weighted_sorting(
     """Sorts the samples of an array using based on their weight values.
 
     Args:
-        samples: a numpy array containing samples.
-        weights: weights values in [0.0, 1.0] corresponding to each sample.
-        sort_ascending: if 'True' it sorts the samples in ascending order so the lowest weight values appear first.
+        samples (NDArray[Any]): a numpy array containing samples.
+        weights (NDArray[np.float64]): weights values in [0.0, 1.0] corresponding to each sample.
+        sort_ascending (bool): if 'True' it sorts the samples in ascending order so the lowest weight values
+            appear first.
 
     Returns:
-        samples: the sorted samples.
-        weights: the sorted weights.
+        samples (NDArray[Any]): the sorted samples.
+        weights (NDArray[np.float64]): the sorted weights.
     """
     if len(samples) != len(weights):
         error_message = f"Size of samples {len(samples)} and weights {len(weights)} must be the same."
@@ -175,15 +182,15 @@ def weighted_sorting_gumbel(
         https://timvieira.github.io/blog/post/2014/07/31/gumbel-max-trick/. Weights are assumed to be in [0, 1].
 
     Args:
-        samples: a numpy array containing samples.
-        weights: weights values in [0.0, 1.0] corresponding to each sample.
-        generator: a random generator instance.
-        sort_ascending: if 'True' it sorts the samples in ascending order, based on the key values.
-        large_exponent: exponent value to use for samples whose weights are zero.
+        samples (NDArray[Any]): a numpy array containing samples.
+        weights (NDArray[np.float64]): weights values in [0.0, 1.0] corresponding to each sample.
+        generator (Generator): a random generator instance.
+        sort_ascending (bool): if 'True' it sorts the samples in ascending order, based on the key values.
+        large_exponent (np.float64): exponent value to use for samples whose weights are zero.
 
     Returns:
-        samples: the sorted samples.
-        weights: the sorted weights.
+        samples (NDArray[Any]): the sorted samples.
+        weights (NDArray[np.float64]): the sorted weights.
     """
     if len(samples) != len(weights):
         error_message = f"Size of samples {len(samples)} and weights {len(weights)} must be the same."
@@ -233,8 +240,8 @@ def alignment_based_selection_per_token(
     deterministic sorting strategies.
 
     Args:
-        config: encapsulates model analysis configuration parameters.
-        model_outputs: a dictionary containing model outputs per scenario.
+        config (DictConfig): encapsulates model analysis configuration parameters.
+        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
 
     Returns:
         a dictionary containing the IDs of the samples (scenarios) to keep or drop for training.
@@ -278,8 +285,7 @@ def alignment_based_selection_per_token(
         else:
             selected_samples[base_token] = _make_group_result(keep=scenario_ids.tolist(), drop=[])
 
-    _aggregate_selected_samples(selected_samples)
-    return selected_samples
+    return _aggregate_selected_samples(selected_samples)
 
 
 def _fit_kmeans(
@@ -427,14 +433,137 @@ def cosine_selection_per_cluster(config: DictConfig, model_outputs: dict[str, ou
     return selected_samples
 
 
+def _get_agent_count(model_output: output.ModelOutput) -> int:
+    """Returns the number of agent slots for a scenario, used as the Den-TP density proxy."""
+    return int(model_output.agent_ids.value.shape[0])
+
+
+def _greedy_submodular_select(
+    scenario_ids: NDArray[Any],
+    embeddings: NDArray[np.float64],
+    n_to_select: int,
+) -> tuple[list[Any], list[Any]]:
+    """Greedy submodular selection using Den-TP's P(S_j) objective.
+
+    Iteratively selects samples that minimise:
+        P(S_j) = Σ_{i∈C_k} cos(g_i, g_j)  -  Σ_{i∈D_k/C_k} cos(g_i, g_j)
+
+    Minimising P(S_j) simultaneously rewards diversity w.r.t. already-selected samples
+    (low similarity to C_k) and coverage of the unselected pool (high similarity to D_k/C_k).
+
+    Uses decoder embeddings as a proxy for the gradient features described in the paper, since
+    gradient computation requires live model access.
+
+    Args:
+        scenario_ids (NDArray[Any]): array of scenario IDs.
+        embeddings (NDArray[np.float64]): array of shape (N, d) — one embedding per scenario.
+        n_to_select (int): number of samples to select (keep).
+
+    Returns:
+        (keep, drop): lists of scenario IDs.
+    """
+    num_scenarios = len(scenario_ids)
+    if n_to_select >= num_scenarios:
+        return scenario_ids.tolist(), []
+    if n_to_select <= 0:
+        return [], scenario_ids.tolist()
+
+    # L2-normalise for cosine similarity
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    normalized = embeddings / norms
+
+    # Precompute full pairwise cosine similarity matrix (N x N)
+    sim_matrix = normalized @ normalized.T
+
+    selected_mask = np.zeros(num_scenarios, dtype=bool)
+    # sum_sim_selected[j] = Σ_{i∈C_k} cos(g_i, g_j) — starts at zero (C_k is empty)
+    sum_sim_selected = np.zeros(num_scenarios, dtype=np.float64)
+    # sum_sim_unselected[j] = Σ_{i∈D_k\C_k} cos(g_i, g_j) — initially all are unselected
+    sum_sim_unselected: NDArray[np.float64] = sim_matrix.sum(axis=0).copy()
+
+    for _ in range(n_to_select):
+        p_scores = sum_sim_selected - sum_sim_unselected
+        p_scores[selected_mask] = np.inf  # exclude already-selected candidates
+
+        best_j = int(np.argmin(p_scores))
+        selected_mask[best_j] = True
+
+        # Incremental update: best_j leaves D_k\C_k and joins C_k
+        sum_sim_selected += sim_matrix[best_j]
+        sum_sim_unselected -= sim_matrix[best_j]
+
+    return scenario_ids[selected_mask].tolist(), scenario_ids[~selected_mask].tolist()
+
+
+def dentp_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput]) -> dict[str, Any]:
+    """Sample selection implementing the Den-TP algorithm (Yang et al., 2024, arXiv:2409.17385).
+
+    Partitions scenarios into density bins by agent count and applies greedy submodular selection within each bin using
+    decoder embeddings as feature representations. High-density partitions are processed first and given priority via a
+    dynamic budget allocation rule: n_k = min(|D_k|, floor(B / k)) where B is the remaining budget and k is the
+    partition index (high → low density).
+
+    Args:
+        config (DictConfig): encapsulates model analysis configuration parameters. Requires: percentage_to_keep (float),
+            density_interval (int, default 4), seed (int).
+        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+
+    Returns:
+        dict[str, Any]: a dictionary containing the IDs of the samples to keep or drop.
+    """
+    scenario_ids_list, embeddings = get_scenario_dec_embeddings(model_outputs)
+    num_scenarios = len(scenario_ids_list)
+
+    agent_counts = np.array([_get_agent_count(model_outputs[sid]) for sid in scenario_ids_list], dtype=np.int64)
+
+    tau = int(config.get("density_interval", 4))
+    rho_min = int(agent_counts.min())
+
+    # Assign each scenario to a 1-indexed density bin
+    k_indices = ((agent_counts - rho_min) // tau + 1).astype(int)
+    max_k = int(k_indices.max())
+
+    # Build mapping: bin index → array of positions in scenario_ids_list
+    partitions: dict[int, NDArray[np.intp]] = {}
+    for k in range(1, max_k + 1):
+        positions = np.where(k_indices == k)[0]
+        if len(positions) > 0:
+            partitions[k] = positions
+
+    remaining_budget = int(config.percentage_to_keep * num_scenarios)
+    scenario_ids_arr = np.array(scenario_ids_list)
+
+    selected_samples: dict[Any, Any] = {}
+
+    # Process partitions in descending order (high density first)
+    for k in range(max_k, 0, -1):
+        if k not in partitions:
+            continue
+
+        positions = partitions[k]
+        partition_ids = scenario_ids_arr[positions]
+        partition_embeddings = embeddings[positions]
+        partition_size = len(positions)
+
+        n_to_select = min(partition_size, remaining_budget // k)
+
+        keep, drop = _greedy_submodular_select(partition_ids, partition_embeddings, n_to_select)
+        selected_samples[k] = _make_group_result(keep=keep, drop=drop)
+        remaining_budget -= len(keep)
+
+    _aggregate_selected_samples(selected_samples)
+    return selected_samples
+
+
 def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput], output_path: Path) -> None:
     """Wrapper function which runs a specified sample selection strategy. A sample selection strategy produces a
     dictionary containing the a set of training scenarios to keep and to drop.
 
     Args:
-        config: encapsulates model analysis configuration parameters.
-        model_outputs: a dictionary containing model outputs per scenario.
-        output_path: output path where visualization will be saved to.
+        config (DictConfig): encapsulates model analysis configuration parameters.
+        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+        output_path (Path): output path where visualization will be saved to.
     """
     selection_strategy = SampleSelection(config.selection_strategy)
     match selection_strategy:
@@ -467,6 +596,8 @@ def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.Mod
         case SampleSelection.GUMBEL_KMEANS_COSINE_DROP:
             config.sorting_strategy = "gumbel"
             sample_selection = cosine_selection_per_cluster(config, model_outputs)
+        case SampleSelection.DEN_TP:
+            sample_selection = dentp_selection(config, model_outputs)
         case _:
             error_message = f"Unsupported selection strategy: {selection_strategy}"
             raise ValueError(error_message)

@@ -1,6 +1,6 @@
 # @package _global_
 seed: 42 # Seed for random generators
-show_run_id: false
+show_run_id: true
 models_to_compare: [
   'autobot',
   'scenetransformer',
@@ -69,7 +69,7 @@ benchmark_colormap: null
 benchmark_splits_to_compare: []
 
 # Ego-safeshift analysis
-run_ego_safeshift_analysis: false
+run_ego_safeshift_analysis: true
 ego_safeshift_benchmark: 'ego-safeshift-causal-benchmark'
 ego_safeshift_filepath: "./meta/distribution_shift_results/ego_safeshift_benchmark.csv"
 ego_safeshift_colormap: colorblind

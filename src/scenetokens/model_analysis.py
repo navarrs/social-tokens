@@ -107,15 +107,22 @@ def main(config: DictConfig) -> float | None:
             resolve=True,
             save_to_file=False,
             print_order=["analysis", "paths"],
+            print_field_not_in_print_order=False,
         )
 
-        # Run selected analyses for the given experiment.
+        # Run the tokenization analysis for the given experiment.
         output_path = Path(experiment_config.paths.analysis_path) / f"{experiment_config.split}_model-analysis"
         _run_experiment_analysis(experiment_config, output_path)
         analysis_paths[experiment_dir] = output_path
 
         log.info("Total time: %s seconds", time() - start)
         log.info("Process completed!")
+
+    # If more than one experiment is being analyzed, we also run a comparative analysis across the experiments.
+    if len(analysis_paths) > 1:
+        log.info("Running comparative analysis across experiments...")
+        analysis_path = Path(config.output_path) / "tokenization" / "comparative-analysis"
+        utils.run_comparative_analysis(analysis_paths, analysis_path)
 
 
 if __name__ == "__main__":
