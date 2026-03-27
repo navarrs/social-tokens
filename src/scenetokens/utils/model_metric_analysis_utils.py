@@ -42,18 +42,6 @@ BENCHMARK_NAME_MAP = {
     "ego-safeshift-causal-benchmark": "EgoSafeShift",
 }
 
-# STRATEGY_NAME_MAP = {
-#     "random_drop": "Random",
-#     "token_random_drop": "Token(R)",
-#     "simple_token_jaccard_drop": "Token(SJ)",
-#     "simple_token_hamming_drop": "Token(SH)",
-#     "gumbel_token_jaccard_drop": "Token(GJ)",
-#     "gumbel_token_hamming_drop": "Token(GH)",
-#     "kmeans_random_drop": "KMeans(R)",
-#     "simple_kmeans_cosine_drop": "KMeans(SC)",
-#     "gumbel_kmeans_cosine_drop": "KMeans(GC)",
-# }
-
 STRATEGY_NAME_MAP = {
     "random_drop": "Random",
     "token_random_drop": "Token-R",
