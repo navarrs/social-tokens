@@ -10,6 +10,8 @@ config:
   num_classes: 100
   num_queries: 38
   num_labels: 9 # Safety Cateogories produced by the SafeShift model
+  tokenize: true # Set to 'false' to disable tokenization
+  predict_trajectories: true # Set to 'false' to disable trajectory prediction
 
   scenario_embedder:
     _target_: scenetokens.models.scene.perceiver_embedder.PerceiverEmbedder
@@ -57,6 +59,8 @@ config:
     config:
       reduction: 'mean'
       num_classes: ${model.config.num_labels}
+      tokenize: ${model.config.tokenize}
+      predict_trajectories: ${model.config.predict_trajectories}
       reconstruction_weight: 1.0
       trajpred_weight: 1.0
       tokenization_weight: 1.0

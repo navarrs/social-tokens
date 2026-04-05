@@ -49,16 +49,21 @@ class SafeSceneTokens(BaseModel):
         # Scenario Encoder
         self.scenario_embedder = self.config.scenario_embedder
 
-        # Scenario Classifier
-        self.scenario_tokenizer = self.config.tokenizer
+        self.tokenize = config.get("tokenize", True)
+        if self.tokenize:
+            # Scenario Classifier
+            self.scenario_tokenizer = self.config.tokenizer
+
+            # Agent safety classifier and tokenizer
+            self.use_agent_tokenizer = self.config.use_agent_tokenizer
+            if self.use_agent_tokenizer:
+                self.agent_tokenizer = self.config.agent_tokenizer
 
         # Trajectory decoder
-        self.motion_decoder = self.config.motion_decoder
+        self.predict_trajectories = config.get("predict_trajectories", True)
+        if self.predict_trajectories:
+            self.motion_decoder = self.config.motion_decoder
 
-        # Agent safety classifier and tokenizer
-        self.use_agent_tokenizer = self.config.use_agent_tokenizer
-        if self.use_agent_tokenizer:
-            self.agent_tokenizer = self.config.agent_tokenizer
         self.individual_safety_classifier = nn.Sequential(nn.Linear(self.config.hidden_size, self.config.num_labels))
         self.interaction_safety_classifier = nn.Sequential(nn.Linear(self.config.hidden_size, self.config.num_labels))
 
@@ -126,7 +131,7 @@ class SafeSceneTokens(BaseModel):
 
         # Tokenize agent context if the branch is enabled.
         causal_tokenization_output = None
-        if self.use_agent_tokenizer:
+        if self.tokenize and self.use_agent_tokenizer:
             causal_tokenization_output = self.agent_tokenizer(agent_context)
 
         # Get safety predictions
@@ -155,14 +160,18 @@ class SafeSceneTokens(BaseModel):
 
         # Classify the scenario using the selected tokenizer.
         scenario_context = context[:, self.max_num_agents :]
-        tokenized_scenario: TokenizationOutput = self.scenario_tokenizer(scenario_context)
+        tokenized_scenario: TokenizationOutput | None = None
         tokens = None
-        if self.config.token_conditioning:
-            tokens = tokenized_scenario.token_indices.value
-            tokens = F.one_hot(tokens, num_classes=self.config.tokenizer.num_tokens).detach()
+        if self.tokenize:
+            tokenized_scenario = self.scenario_tokenizer(scenario_context)
+            if self.config.token_conditioning and self.predict_trajectories:
+                tokens = tokenized_scenario.token_indices.value
+                tokens = F.one_hot(tokens, num_classes=self.config.tokenizer.num_tokens).detach()
 
         # Decode the scenario trajectories
-        decoded_trajectories: TrajectoryDecoderOutput = self.motion_decoder(scenario_context, tokens)
+        decoded_trajectories: TrajectoryDecoderOutput | None = None
+        if self.predict_trajectories:
+            decoded_trajectories = self.motion_decoder(scenario_context, tokens)
 
         return ModelOutput(
             scenario_embedding=scenario_embedder,

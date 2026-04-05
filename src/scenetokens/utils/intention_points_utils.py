@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import torch.multiprocessing
 from characterization.utils.common import AgentType
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
@@ -133,6 +134,10 @@ def compute_and_cache_intention_points(train_loader: DataLoader, cfg: DictConfig
     max_samples: int | None = OmegaConf.select(cfg, "model.config.intention_points_max_samples")
     out_path = Path(OmegaConf.select(cfg, "model.config.intention_points_file", default="./meta/intention_points.pkl"))
     out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Switch to file_system sharing to avoid "too many open files" when iterating
+    # large DataLoaders with multiple workers (default file_descriptor strategy exhausts ulimit).
+    torch.multiprocessing.set_sharing_strategy("file_system")
 
     _LOGGER.info("Collecting trajectory endpoints for MTR intention points (types: %s) ...", object_types)
     endpoints = _collect_endpoints(train_loader, object_types, max_samples=max_samples)

@@ -7,7 +7,7 @@ _target_: scenetokens.models.mtr.MTR
 config:
   model_name: mtr
   base_tags: lr-${model.config.optimizer.lr}_batch-size-${model.config.train_batch_size}
-  extra_tags: ${model.config.base_tags}
+  extra_tags: ${model.config.base_tags}_${model.config.mtr_tags}
 
   # Parameters needed to create the intention point clusters, which are used as candidate future endpoints for the
   # motion decoder cross-attention.
@@ -16,6 +16,7 @@ config:
   intention_points_max_samples: null
 
   # Context Encoder
+  mtr_tags: local-${model.config.context_encoder.use_local_attn}-manually_split_lane-${model.config.manually_split_lane}
   context_encoder:
     # Agent polyline encoder
     num_input_attr_agent: ${model.config.agents_input_size}   # 29 (mask appended internally)
@@ -35,7 +36,7 @@ config:
     dropout_of_attn: 0.1
 
     # Local attention (original local KNN requires CUDA extensions)
-    use_local_attn: false
+    use_local_attn: true
     num_of_attn_neighbors: 7
 
   # Motion Decoder
@@ -95,10 +96,11 @@ config:
   lr_clip: 0.000001
 
   # MTR-specific hyperparameters that are not shared with the other models.
+  max_epochs: 50
   grad_clip_norm: 1000.0 # large value to effectively disable gradient clipping
-  max_num_agents: 64
-  max_num_roads: 768
-  manually_split_lane: True # whether to split lane polylines at intersections
+  max_num_agents: 32
+  max_num_roads: 384
+  manually_split_lane: False # whether to split lane polylines at intersections
   point_sampled_interval: 1
   num_points_each_polyline: 20
   vector_break_dist_thresh: 1.0 # distance threshold for breaking polylines into segments (metres)

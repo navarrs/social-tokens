@@ -19,8 +19,13 @@ class SafeSceneTokens(Criterion):
     def __init__(self, config: DictConfig) -> None:
         super().__init__(config=config)
 
-        self.reconstruction_criterion = Reconstruction(config)
-        self.trajpred_criterion = TrajectoryPrediction(config)
+        self.tokenize = config.get("tokenize", True)
+        if self.tokenize:
+            self.reconstruction_criterion = Reconstruction(config)
+
+        self.predict_trajectories = config.get("predict_trajectories", True)
+        if self.predict_trajectories:
+            self.trajpred_criterion = TrajectoryPrediction(config)
 
         # Classification losses for safety-agent predictions.
         config.safety_type = "individual"
@@ -50,8 +55,19 @@ class SafeSceneTokens(Criterion):
         Returns:
             torch.Tensor: Scalar loss value ``L_rec + L_traj + L_ind + L_int``.
         """
-        reconstruction_loss = self.reconstruction_criterion(model_output)
-        trajpred_loss = self.trajpred_criterion(model_output)
         individual_safety_loss = self.individual_safety_loss(model_output)
         interaction_safety_loss = self.interaction_safety_loss(model_output)
-        return (reconstruction_loss + trajpred_loss + individual_safety_loss + interaction_safety_loss).mean()
+        safety_loss = individual_safety_loss + interaction_safety_loss
+
+        if self.tokenize:
+            reconstruction_loss = self.reconstruction_criterion(model_output)
+
+            if self.predict_trajectories:
+                return (reconstruction_loss + self.trajpred_criterion(model_output) + safety_loss).mean()
+
+            return (reconstruction_loss + safety_loss).mean()
+
+        if self.predict_trajectories:
+            return (self.trajpred_criterion(model_output) + safety_loss).mean()
+
+        return safety_loss.mean()

@@ -107,9 +107,10 @@ def main(config: DictConfig) -> float | None:
             resolve=True,
             save_to_file=False,
             print_order=["analysis", "paths"],
+            print_field_not_in_print_order=False,
         )
 
-        # Run selected analyses for the given experiment.
+        # Run the tokenization analysis for the given experiment.
         output_path = Path(experiment_config.paths.analysis_path) / f"{experiment_config.split}_model-analysis"
         _run_experiment_analysis(experiment_config, output_path)
         analysis_paths[experiment_dir] = output_path
