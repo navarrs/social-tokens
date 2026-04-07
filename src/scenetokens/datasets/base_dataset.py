@@ -665,6 +665,7 @@ class BaseDataset(Dataset, ABC):
         # Extract score information if available
         individual_agent_scores, individual_scene_scores = None, None
         interaction_agent_scores, interaction_scene_scores = None, None
+        individual_agent_scores_mask, interaction_agent_scores_mask = None, None
         if scenario_scores is not None:
             # Get valid agent scores
             individual_agent_scores = scenario_scores.individual_scores.agent_scores[valid_past_mask]  # pyright: ignore[reportOptionalSubscript]
@@ -677,13 +678,29 @@ class BaseDataset(Dataset, ABC):
             interaction_agent_scores[~interaction_agent_scores_valid] = 0
             interaction_agent_scores = np.tile(interaction_agent_scores[None, :], (num_center_points, 1))
 
+            # Build validity masks: True where the scorer produced a valid score, False for invalid or padded agents.
+            individual_agent_scores_mask = np.tile(individual_agent_scores_valid[None, :], (num_center_points, 1))
+            interaction_agent_scores_mask = np.tile(interaction_agent_scores_valid[None, :], (num_center_points, 1))
+
             # Take only the top-k agents
             individual_agent_scores = np.take_along_axis(individual_agent_scores[..., None, None], topk_idxs, axis=1)
             interaction_agent_scores = np.take_along_axis(interaction_agent_scores[..., None, None], topk_idxs, axis=1)
+            individual_agent_scores_mask = np.take_along_axis(
+                individual_agent_scores_mask[..., None, None], topk_idxs, axis=1
+            )
+            interaction_agent_scores_mask = np.take_along_axis(
+                interaction_agent_scores_mask[..., None, None], topk_idxs, axis=1
+            )
 
-            # Pad the scores if the scene has fewer agents than the maximum.
+            # Pad scores and masks; padded entries are marked invalid (mask = False / 0).
             individual_agent_scores = np.pad(individual_agent_scores, ((0, 0), (0, size_to_pad), (0, 0), (0, 0)))
             interaction_agent_scores = np.pad(interaction_agent_scores, ((0, 0), (0, size_to_pad), (0, 0), (0, 0)))
+            individual_agent_scores_mask = np.pad(
+                individual_agent_scores_mask, ((0, 0), (0, size_to_pad), (0, 0), (0, 0))
+            )
+            interaction_agent_scores_mask = np.pad(
+                interaction_agent_scores_mask, ((0, 0), (0, size_to_pad), (0, 0), (0, 0))
+            )
 
             # Extract scene scores
             individual_scene_scores = [scenario_scores.individual_scores.scene_score] * num_center_objects
@@ -699,8 +716,10 @@ class BaseDataset(Dataset, ABC):
             "obj_trajs_future_state": agent_futures,
             "obj_trajs_future_mask": agent_futures_mask,
             "individual_agent_scores": individual_agent_scores,
+            "individual_agent_scores_mask": individual_agent_scores_mask,
             "individual_scene_scores": individual_scene_scores,
             "interaction_agent_scores": interaction_agent_scores,
+            "interaction_agent_scores_mask": interaction_agent_scores_mask,
             "interaction_scene_scores": interaction_scene_scores,
             "center_gt_trajs": center_gt_trajs,
             "center_gt_trajs_mask": center_gt_trajs_mask,
@@ -1112,9 +1131,10 @@ class BaseDataset(Dataset, ABC):
         for out in output:
             scenario_id = out["scenario_id"]
             causal_labels_filepath = Path(f"{self.config.causal_labels_path}/{scenario_id}.json")
-            # Assume all agents are causal if no causal file is given
             agent_ids = out["obj_ids"].squeeze(-1).squeeze(-1)
             causal_idxs = np.zeros_like(agent_ids)
+            # Validity mask: True where a proper ground-truth causal label is available.
+            causal_mask = np.ones_like(agent_ids, dtype=bool)
             if causal_labels_filepath.exists():
                 with causal_labels_filepath.open("r") as f:
                     causal_labels = json.load(f)
@@ -1128,12 +1148,15 @@ class BaseDataset(Dataset, ABC):
                 # out['causal_ids_votes'] = np.array(causal_labels['labeler_votes'], dtype=int)
             else:
                 print(f"Warning: causal labels file not found for scenario {scenario_id}")
-                causal_idxs[out["track_index_to_predict"]] = True
+                # No ground-truth labels available: mark all agents as invalid for training.
+                causal_mask[:] = False
 
-            # Mask out padded agents and/or agents with invalid histories (i.e., full mask is False)
+            # Mask out padded agents and/or agents with invalid histories (i.e., full mask is False).
             invalid_hists = out["obj_trajs_mask"].sum(axis=1) == 0
             causal_idxs[invalid_hists] = False
+            causal_mask[invalid_hists] = False
             out["causal_idxs"] = causal_idxs.astype(np.float32)
+            out["causal_mask"] = causal_mask.astype(np.float32)
         return output
 
     def collate_fn(self, data_list: list) -> dict:

@@ -51,42 +51,54 @@ class CausalOutput(BaseModel):  # pyright: ignore[reportUntypedBaseClass]
 
     Attributes:
         causal_gt (TorchTensor(Float)): contains values in {0, 1} where 0 means not causal and 1 means causal.
+            Invalid or padded entries are indicated by causal_mask.
         causal_pred (TorchTensor(Float)): contains values in {0, 1} indicating the predicted causal class.
         causal_pred_probs (TorchTensor(Float)): contains values in [0, 1] representing probability of being causal.
         causal_logits (TorchTensor(Float)): contains the causal logit values before applying a Sigmoid activation.
+        causal_mask (TorchTensor(Float)): boolean-valued float mask (1.0 = valid, 0.0 = invalid/padded).
+            Invalid entries have no ground-truth causal label available or are padding agents.
     """
 
     causal_gt: Tensor[TorchTensor, Any, Float]
     causal_pred: Tensor[TorchTensor, Any, Float]
     causal_pred_probs: Tensor[TorchTensor, Any, Float]
     causal_logits: Tensor[TorchTensor, Any, Float] | None = None
+    causal_mask: Tensor[TorchTensor, Any, Float] | None = None
 
 
 class SafetyOutput(BaseModel):  # pyright: ignore[reportUntypedBaseClass]
-    """Encapsulates causal output values.
+    """Encapsulates safety classification output values.
 
     Attributes:
-        individual_safety_gt (TorchTensor(Float)): contains categories in {0, N}, where 0 means invalid, and 1 to N are
-            the different safety levels.
+        individual_safety_gt (TorchTensor(Float)): contains categories in {0-N}, where 1 to N are the different
+            safety levels. Values of 0 indicate a score below the lowest threshold; values above N indicate a score
+            above the highest threshold. Invalid or padded entries are indicated by individual_safety_mask.
         individual_safety_pred (TorchTensor(Float)): contains the predicted tensor of safety levels.
         individual_safety_pred_probs (TorchTensor(Float)): contains the predicted tensor as a probability vector.
-        individual_safety_logits (TorchTensor(Float)): contains the causal logit values before applying a Softmax.
-        interaction_safety_gt (TorchTensor(Float)): contains categories in {0, N}, where 0 means invalid, and 1 to N are
-            the different safety levels.
+        individual_safety_logits (TorchTensor(Float)): contains the logit values before applying a Softmax.
+        individual_safety_mask (TorchTensor(Float)): boolean-valued float mask (1.0 = valid, 0.0 = invalid/padded).
+            Invalid entries have no valid scorer output or are padding agents.
+        interaction_safety_gt (TorchTensor(Float)): contains categories in {0-N}, where 1 to N are the different
+            safety levels. Values of 0 indicate a score below the lowest threshold; values above N indicate a score
+            above the highest threshold. Invalid or padded entries are indicated by interaction_safety_mask.
         interaction_safety_pred (TorchTensor(Float)): contains the predicted tensor of safety levels.
         interaction_safety_pred_probs (TorchTensor(Float)): contains the predicted tensor as a probability vector.
-        interaction_safety_logits (TorchTensor(Float)): contains the causal logit values before applying a Softmax.
+        interaction_safety_logits (TorchTensor(Float)): contains the logit values before applying a Softmax.
+        interaction_safety_mask (TorchTensor(Float)): boolean-valued float mask (1.0 = valid, 0.0 = invalid/padded).
+            Invalid entries have no valid scorer output or are padding agents.
     """
 
     individual_safety_gt: Tensor[TorchTensor, Any, Float]
     individual_safety_pred: Tensor[TorchTensor, Any, Float]
     individual_safety_pred_probs: Tensor[TorchTensor, Any, Float]
     individual_safety_logits: Tensor[TorchTensor, Any, Float] | None = None
+    individual_safety_mask: Tensor[TorchTensor, Any, Float] | None = None
 
     interaction_safety_gt: Tensor[TorchTensor, Any, Float]
     interaction_safety_pred: Tensor[TorchTensor, Any, Float]
     interaction_safety_pred_probs: Tensor[TorchTensor, Any, Float]
     interaction_safety_logits: Tensor[TorchTensor, Any, Float] | None = None
+    interaction_safety_mask: Tensor[TorchTensor, Any, Float] | None = None
 
 
 class ScenarioEmbedding(BaseModel):  # pyright: ignore[reportUntypedBaseClass]

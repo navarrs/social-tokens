@@ -77,7 +77,7 @@ config:
     cyclist_cyclist_categorization_file: ./meta/scores/type_cyclist_cyclist_feature_percentiles.json
 
     # Scoring parameters
-    vru_priority_weight: 2.0 # Weight for VRU priority in scoring
+    vru_priority_weight: 1.0 # Weight for VRU priority in scoring
     categorize_scores: true # Whether to categorize scores
     score_weighting_method: "distance_to_ego_agent" # Method for weighting scores ('uniform', 'wrt_ego', 'wrt_relevant')
     reduce_distance_penalty: true # Whether to reduce distance penalty

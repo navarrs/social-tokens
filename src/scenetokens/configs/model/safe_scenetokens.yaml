@@ -9,7 +9,8 @@ config:
 
   num_classes: 100
   num_queries: 38
-  num_labels: 9 # Safety Cateogories produced by the SafeShift model
+  # num_labels: 9 # Safety Cateogories produced by the SafeShift model
+  num_labels: 6 # Safety Cateogories produced by the SafeShift model
   tokenize: true # Set to 'false' to disable tokenization
   predict_trajectories: true # Set to 'false' to disable trajectory prediction
 
@@ -76,5 +77,7 @@ config:
       # individual_alpha: [0.500, 0.982, 0.937, 0.800, 0.710, 0.772, 0.915, 0.915, 0.968]
 
       # Hand-crafted values
-      interaction_alpha: [0.3, 0.5, 0.5, 0.5, 0.6, 0.8, 0.8, 1.0, 1.0]
-      individual_alpha: [0.3, 0.5, 0.5, 0.5, 0.6, 0.8, 0.8, 1.0, 1.0]
+      # interaction_alpha: [0.3, 0.5, 0.5, 0.5, 0.6, 0.8, 0.8, 1.0, 1.0]
+      # individual_alpha: [0.3, 0.5, 0.5, 0.5, 0.6, 0.8, 0.8, 1.0, 1.0]
+      interaction_alpha: [0.3, 0.5, 0.5, 0.8, 1.0, 1.0]
+      individual_alpha: [0.3, 0.5, 0.5, 0.8, 1.0, 1.0]

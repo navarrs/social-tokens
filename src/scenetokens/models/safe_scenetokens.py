@@ -147,15 +147,26 @@ class SafeSceneTokens(BaseModel):
         interaction_safety_pred = self.interaction_safety_classifier(agent_context)
         interaction_safety_probs = F.softmax(interaction_safety_pred, dim=-1)
 
+        # Validity masks: 1.0 = valid scorer output, 0.0 = invalid or padded agent. Shape: (B, N).
+        individual_safety_mask = inputs.get("individual_agent_scores_mask")
+        if individual_safety_mask is not None:
+            individual_safety_mask = individual_safety_mask.squeeze(-1).float()
+
+        interaction_safety_mask = inputs.get("interaction_agent_scores_mask")
+        if interaction_safety_mask is not None:
+            interaction_safety_mask = interaction_safety_mask.squeeze(-1).float()
+
         safety_output = SafetyOutput(
             individual_safety_gt=individual_safety_scores,
             individual_safety_pred_probs=individual_safety_probs,
             individual_safety_pred=individual_safety_pred.argmax(dim=-1).to(torch.float),
             individual_safety_logits=individual_safety_pred,
+            individual_safety_mask=individual_safety_mask,
             interaction_safety_gt=interaction_safety_scores,
             interaction_safety_pred_probs=interaction_safety_probs,
             interaction_safety_pred=interaction_safety_pred.argmax(dim=-1).to(torch.float),
             interaction_safety_logits=interaction_safety_pred,
+            interaction_safety_mask=interaction_safety_mask,
         )
 
         # Classify the scenario using the selected tokenizer.

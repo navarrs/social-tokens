@@ -37,9 +37,11 @@ class SafetyClassification(Criterion):
         if self.safety_type == "individual":
             gt = safety_output.individual_safety_gt.value
             logits = safety_output.individual_safety_logits.value
+            mask = safety_output.individual_safety_mask
         elif self.safety_type == "interaction":
             gt = safety_output.interaction_safety_gt.value
             logits = safety_output.interaction_safety_logits.value
+            mask = safety_output.interaction_safety_mask
         else:
             error_msg = f"Unknown safety_type: {self.safety_type}. Supported types are 'individual' and 'interaction'."
             raise ValueError(error_msg)
@@ -49,6 +51,16 @@ class SafetyClassification(Criterion):
 
         # Logits: (B, N, C) → (B*N, C)
         logits = logits.view(-1, logits.shape[-1])
+
+        # Filter out invalid and padded entries using the validity mask if provided.
+        if mask is not None:
+            valid = mask.view(-1).bool()
+            gt = gt[valid]
+            logits = logits[valid]
+
+        if gt.numel() == 0:
+            return gt.new_tensor(0.0)
+
         loss = self.loss_function(logits, gt)
         return self.classification_weight * loss.mean()
 
@@ -88,6 +100,15 @@ class CausalClassification(Criterion):
             -1,
             causal_output.causal_logits.value.shape[-1],
         )
+
+        # Filter out invalid and padded entries using the validity mask if provided.
+        if causal_output.causal_mask is not None:
+            valid = causal_output.causal_mask.view(-1).bool()
+            gt = gt[valid]
+            logits = logits[valid]
+
+        if gt.numel() == 0:
+            return gt.new_tensor(0.0)
 
         loss = self.loss_function(logits, gt)
         return self.classification_weight * loss.mean()
@@ -148,9 +169,11 @@ class FocalSafetyClassification(Criterion):
         if self.safety_type == "individual":
             gt = safety_output.individual_safety_gt.value
             logits = safety_output.individual_safety_logits.value
+            mask = safety_output.individual_safety_mask
         elif self.safety_type == "interaction":
             gt = safety_output.interaction_safety_gt.value
             logits = safety_output.interaction_safety_logits.value
+            mask = safety_output.interaction_safety_mask
         else:
             error_msg = f"Unknown safety_type: {self.safety_type}. Supported types are 'individual' and 'interaction'."
             raise ValueError(error_msg)
@@ -160,6 +183,16 @@ class FocalSafetyClassification(Criterion):
 
         # Logits: (B, N, C) → (B*N, C)
         logits = logits.view(-1, logits.shape[-1])
+
+        # Filter out invalid and padded entries using the validity mask if provided.
+        if mask is not None:
+            valid = mask.view(-1).bool()
+            gt = gt[valid]
+            logits = logits[valid]
+
+        if gt.numel() == 0:
+            return gt.new_tensor(0.0)
+
         ce_loss = self.loss_function(logits, gt)
         pt = torch.exp(-ce_loss)
 
@@ -217,6 +250,15 @@ class FocalCausalClassification(Criterion):
 
         # Logits has shape (B, N, C)
         logits = causal_output.causal_logits.value.view(-1, 2)
+
+        # Filter out invalid and padded entries using the validity mask if provided.
+        if causal_output.causal_mask is not None:
+            valid = causal_output.causal_mask.view(-1).bool()
+            gt = gt[valid]
+            logits = logits[valid]
+
+        if gt.numel() == 0:
+            return gt.new_tensor(0.0)
 
         # Apply the cross entropy loss
         ce_loss = self.loss_function(logits, gt)

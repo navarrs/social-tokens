@@ -63,7 +63,7 @@ paths:
   # experiment_dir: ego-safeshift-causal-benchmark_safe-scenetokens_safe-weight_2026-01-14_16-10-23
 
   # Safe-ST Model with focal loss (ckpt: epoch_105.ckpt)
-  # uv run -m scenetokens.run_sample_selection model=safe_scenetokens ckpt_path=/data/driving/waymo/causal-benchmark-labeled/model_cache/ckpt_path=/data/driving/waymo/causal-benchmark-labeled/model_cache/causal-benchmark-labeled_safe-scenetokens_focal_gamma_hc_2026-03-12_12-08-48/ckpts/causal-benchmark-labeled_safe-scenetokens_focal_gamma_hc/epoch_105.ckpt
+  # uv run -m scenetokens.run_sample_selection model=safe_scenetokens ckpt_path=/data/driving/waymo/causal-benchmark-labeled/model_cache/causal-benchmark-labeled_safe-scenetokens_focal_gamma_hc_2026-03-12_12-08-48/ckpts/causal-benchmark-labeled_safe-scenetokens_focal_gamma_hc/epoch_105.ckpt
   experiment_dir: causal-benchmark-labeled_safe-scenetokens_focal_gamma_hc_2026-03-12_12-08-48
 
   # Causal-ST Model, run as: (ckpt: epoch_095.ckpt)

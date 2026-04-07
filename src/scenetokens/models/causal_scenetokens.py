@@ -123,11 +123,15 @@ class CausalSceneTokens(BaseModel):
         #   causal_idxs: (B, N)
         causal_pred = self.causal_classifier(agent_context)
         causal_pred_probs = F.softmax(causal_pred, dim=-1)
+        causal_mask = inputs.get("causal_mask")
+        if causal_mask is not None:
+            causal_mask = causal_mask.float()
         causal_output = CausalOutput(
             causal_gt=inputs["causal_idxs"],
             causal_pred_probs=causal_pred_probs,
             causal_pred=causal_pred_probs.argmax(dim=-1).to(torch.float),
             causal_logits=causal_pred,
+            causal_mask=causal_mask,
         )
 
         # Classify the scenario using the selected tokenizer.
