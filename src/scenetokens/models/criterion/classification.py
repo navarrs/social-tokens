@@ -37,11 +37,11 @@ class SafetyClassification(Criterion):
         if self.safety_type == "individual":
             gt = safety_output.individual_safety_gt.value
             logits = safety_output.individual_safety_logits.value
-            mask = safety_output.individual_safety_mask
+            mask = safety_output.individual_safety_mask.value
         elif self.safety_type == "interaction":
             gt = safety_output.interaction_safety_gt.value
             logits = safety_output.interaction_safety_logits.value
-            mask = safety_output.interaction_safety_mask
+            mask = safety_output.interaction_safety_mask.value
         else:
             error_msg = f"Unknown safety_type: {self.safety_type}. Supported types are 'individual' and 'interaction'."
             raise ValueError(error_msg)
@@ -53,10 +53,9 @@ class SafetyClassification(Criterion):
         logits = logits.view(-1, logits.shape[-1])
 
         # Filter out invalid and padded entries using the validity mask if provided.
-        if mask is not None:
-            valid = mask.view(-1).bool()
-            gt = gt[valid]
-            logits = logits[valid]
+        valid = mask.view(-1).bool()
+        gt = gt[valid]
+        logits = logits[valid]
 
         if gt.numel() == 0:
             return gt.new_tensor(0.0)
@@ -103,7 +102,7 @@ class CausalClassification(Criterion):
 
         # Filter out invalid and padded entries using the validity mask if provided.
         if causal_output.causal_mask is not None:
-            valid = causal_output.causal_mask.view(-1).bool()
+            valid = causal_output.causal_mask.value.view(-1).bool()
             gt = gt[valid]
             logits = logits[valid]
 
@@ -169,11 +168,11 @@ class FocalSafetyClassification(Criterion):
         if self.safety_type == "individual":
             gt = safety_output.individual_safety_gt.value
             logits = safety_output.individual_safety_logits.value
-            mask = safety_output.individual_safety_mask
+            mask = safety_output.individual_safety_mask.value
         elif self.safety_type == "interaction":
             gt = safety_output.interaction_safety_gt.value
             logits = safety_output.interaction_safety_logits.value
-            mask = safety_output.interaction_safety_mask
+            mask = safety_output.interaction_safety_mask.value
         else:
             error_msg = f"Unknown safety_type: {self.safety_type}. Supported types are 'individual' and 'interaction'."
             raise ValueError(error_msg)
@@ -185,10 +184,9 @@ class FocalSafetyClassification(Criterion):
         logits = logits.view(-1, logits.shape[-1])
 
         # Filter out invalid and padded entries using the validity mask if provided.
-        if mask is not None:
-            valid = mask.view(-1).bool()
-            gt = gt[valid]
-            logits = logits[valid]
+        valid = mask.view(-1).bool()
+        gt = gt[valid]
+        logits = logits[valid]
 
         if gt.numel() == 0:
             return gt.new_tensor(0.0)
@@ -253,7 +251,7 @@ class FocalCausalClassification(Criterion):
 
         # Filter out invalid and padded entries using the validity mask if provided.
         if causal_output.causal_mask is not None:
-            valid = causal_output.causal_mask.view(-1).bool()
+            valid = causal_output.causal_mask.value.view(-1).bool()
             gt = gt[valid]
             logits = logits[valid]
 

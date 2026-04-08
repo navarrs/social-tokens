@@ -79,5 +79,7 @@ config:
       # Hand-crafted values
       # interaction_alpha: [0.3, 0.5, 0.5, 0.5, 0.6, 0.8, 0.8, 1.0, 1.0]
       # individual_alpha: [0.3, 0.5, 0.5, 0.5, 0.6, 0.8, 0.8, 1.0, 1.0]
-      interaction_alpha: [0.3, 0.5, 0.5, 0.8, 1.0, 1.0]
-      individual_alpha: [0.3, 0.5, 0.5, 0.8, 1.0, 1.0]
+      # interaction_alpha: [0.3, 0.5, 0.5, 0.8, 1.0, 1.0]
+      # individual_alpha: [0.3, 0.5, 0.5, 0.8, 1.0, 1.0]
+      interaction_alpha: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+      individual_alpha: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
