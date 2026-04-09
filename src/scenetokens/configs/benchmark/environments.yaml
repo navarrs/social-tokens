@@ -1,0 +1,30 @@
+# @package _global_
+
+benchmark_name: environments
+
+# Number of KMeans clusters.
+n_clusters: 10
+
+# Number of graph visualizations to save per cluster.
+n_examples: 30
+
+# Fraction of all scenarios used to fit the scaler and KMeans model.
+sample_percentage: 0.20
+
+# Explicit number of scenarios to use for fitting. Overrides sample_percentage when set.
+num_scenarios: null
+
+# If true, restrict each scenario's graph to map elements within the ego-centric L∞ range filter.
+ego_centered: false
+
+# Maximum number of map elements to retain when ego_centered is true.
+k_polylines: 384
+
+# If true, recompute all descriptors and overwrite the cache.
+overwrite: false
+
+# L∞ half-width of the ego-centric range box in metres.
+map_range: 100.0
+
+# Dimensionality reduction for the scatter plot: 'pca' or 'tsne'.
+reduction: pca

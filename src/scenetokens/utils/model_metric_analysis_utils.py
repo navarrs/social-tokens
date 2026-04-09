@@ -44,6 +44,11 @@ BENCHMARK_NAME_MAP = {
     "ego-safeshift-causal-benchmark": "EgoSafeShift",
 }
 
+SPLIT_NAME_MAP = {
+    "test/waymo-mini-causal-testing": "CausalAgents/ID",
+    "test/waymo-remove-noncausal-testing": "CausalAgents/OOD",
+}
+
 STRATEGY_NAME_MAP = {
     "random_drop": "Random",
     "token_random_drop": "Token-R",
@@ -122,7 +127,7 @@ def _collect_sweep_y_values(
 
 def _style_sweep_ax(ax: Axes, metric: str, retention_pcts: list[float]) -> None:
     """Apply standard styling to a sample-selection sweep lineplot axis."""
-    ax.set_title(metric.replace("_", " "), pad=10)
+    ax.set_title((metric[0].upper() + metric[1:]).replace("_", " "), pad=10)
     ax.set_xlabel("Data Retention (%)")
     ax.set_ylabel("Metric Value")
     ax.set_xticks(retention_pcts)
@@ -541,13 +546,12 @@ def _plot_sample_selection_sweep_heatmap(  # noqa: PLR0912, PLR0915
             # constrained_layout resolves colorbar placement, aspect="equal", and spacing together.
             num_pcts = len(retention_pcts)
             n_cols = len(strategies)
-            cell = 0.75  # inches per cell
-            label_margin = 2.2  # left margin for y-tick labels
-            xtick_margin = 1.5  # bottom margin for rotated x-tick labels
-            title_margin = 0.5  # top margin for subplot titles + suptitle
-            cbar_margin = 0.8  # right margin for colorbar
-            fig_w = cell * (num_pcts * n_cols + 1) + label_margin + cbar_margin
-            fig_h = cell * num_rows + xtick_margin + title_margin
+            fig_w = (
+                config.heatmap_cell_size * (num_pcts * n_cols + 1)
+                + config.heatmap_label_margin
+                + config.heatmap_cbar_margin
+            )
+            fig_h = config.heatmap_cell_size * num_rows + config.heatmap_xtick_margin + config.heatmap_title_margin
             marker_size = 25
             fig, axes = plt.subplots(
                 1,
@@ -625,8 +629,8 @@ def _plot_sample_selection_sweep_heatmap(  # noqa: PLR0912, PLR0915
             ax_base.set_yticks([])
 
             # Attach colorbar to the axes group so it auto-aligns and matches the heatmap height.
-            # shrink pulls the bar height closer to the heatmap extent; fraction controls its width.
-            cbar = fig.colorbar(im, ax=list(axes), pad=0.02, shrink=0.8, fraction=0.05, aspect=15)
+            # shrink=0.7 makes the bar span the full heatmap height; fraction/aspect control its width.
+            cbar = fig.colorbar(im, ax=list(axes), pad=0.02, shrink=0.7, fraction=0.08, aspect=8)
             cbar.ax.tick_params(labelsize=9)
 
             # Legend handles to show best strategies
@@ -654,7 +658,7 @@ def _plot_sample_selection_sweep_heatmap(  # noqa: PLR0912, PLR0915
 
             output_file = output_path / f"{metric}_{subsplit}{suffix}.png"
             fig.legend(handles=legend, loc="upper right", bbox_to_anchor=(0.99, 0.99), frameon=False, fontsize=9)
-            fig.suptitle(f"{metric.replace('_', ' ')} — {split}")
+            fig.suptitle(f"{(metric[0].upper() + metric[1:]).replace('_', ' ')} — {SPLIT_NAME_MAP.get(split, split)}")
             fig.savefig(output_file, dpi=200, bbox_inches="tight")
             plt.close(fig)
 
@@ -750,17 +754,16 @@ def _plot_sample_selection_sweep_heatmap_baseline_gap(  # noqa: PLR0912, PLR0915
         vmin, vmax = _symmetric_vrange(all_gaps)
 
         # Figure layout — same cell-size approach as the main heatmap
-        cell = 0.55
-        label_margin = 2.2
-        xtick_margin = 1.5
-        title_margin = 0.5
-        cbar_margin = 0.8
-        fig_w = cell * num_retention_pcts * n_cols + label_margin + cbar_margin
-        fig_h = cell * num_rows + xtick_margin + title_margin
+        fig_w = (
+            config.heatmap_cell_size * num_retention_pcts * n_cols
+            + config.heatmap_label_margin
+            + config.heatmap_cbar_margin
+        )
+        fig_h = config.heatmap_cell_size * num_rows + config.heatmap_xtick_margin + config.heatmap_title_margin
         fig, axes = plt.subplots(1, num_retention_pcts, figsize=(fig_w, fig_h), squeeze=False, layout="constrained")
         fig.get_layout_engine().set(wspace=0.02, w_pad=0.01)  # type: ignore[union-attr]
         axes = axes[0]
-
+        marker_size = 25
         row_labels = [_row_label(m, tk) for m, tk in row_index]
 
         # Plot gap heatmaps
@@ -788,7 +791,7 @@ def _plot_sample_selection_sweep_heatmap_baseline_gap(  # noqa: PLR0912, PLR0915
             for i in range(data.shape[0]):
                 for j in range(data.shape[1]):
                     if not np.isnan(data[i, j]) and data[i, j] <= 0:
-                        ax.plot(j, i, marker="*", ms=18, mec="black", alpha=0.5, mew=1, c="none", zorder=5)
+                        ax.plot(j, i, marker="*", ms=marker_size, mec="black", alpha=0.5, mew=1, c="none", zorder=5)
 
             # Highlight best per row (most negative gap = most improvement over baseline)
             for i in range(data.shape[0]):
@@ -800,10 +803,10 @@ def _plot_sample_selection_sweep_heatmap_baseline_gap(  # noqa: PLR0912, PLR0915
                 marker_color = highlight_color if gap_val < 0 else "black"
                 if config.add_rectangle_annotation:
                     ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, edgecolor=marker_color, linewidth=3))
-                ax.plot(j, i, marker="*", ms=18, mec=marker_color, mew=1, c=marker_color, zorder=10)
+                ax.plot(j, i, marker="*", ms=marker_size, mec=marker_color, mew=1, c=marker_color, zorder=10)
 
         if im is not None:
-            cbar = fig.colorbar(im, ax=list(axes), pad=0.02, shrink=0.8, fraction=0.05, aspect=15)
+            cbar = fig.colorbar(im, ax=list(axes), pad=0.02, shrink=0.7, fraction=0.08, aspect=8)
             cbar.ax.tick_params(labelsize=9)
             cbar.set_label("Gap to Baseline (%)", fontsize=9)
 
@@ -825,7 +828,8 @@ def _plot_sample_selection_sweep_heatmap_baseline_gap(  # noqa: PLR0912, PLR0915
 
         output_file = output_path / f"{metric}_{subsplit}.png"
         fig.legend(handles=legend, loc="upper right", bbox_to_anchor=(0.99, 0.99), frameon=False, fontsize=9)
-        fig.suptitle(f"Gap to Baseline — {metric.replace('_', ' ')} ({split})")
+        metric_label = (metric[0].upper() + metric[1:]).replace("_", " ")
+        fig.suptitle(f"Gap to Baseline — {metric_label} ({SPLIT_NAME_MAP.get(split, split)})")
         fig.savefig(output_file, dpi=200, bbox_inches="tight")
         plt.close(fig)
 
@@ -934,13 +938,12 @@ def _plot_sample_selection_sweep_distribution_gap(  # noqa: PLR0912, PLR0915
         vmin, vmax = _symmetric_vrange(all_gaps)
 
         # Figure layout — same cell-size approach as the other heatmaps
-        cell = 0.45
-        label_margin = 2.2
-        xtick_margin = 1.5
-        title_margin = 0.5
-        cbar_margin = 0.8
-        fig_w = cell * num_retention_pcts * n_cols + label_margin + cbar_margin
-        fig_h = cell * num_rows + xtick_margin + title_margin
+        fig_w = (
+            config.heatmap_cell_size * num_retention_pcts * n_cols
+            + config.heatmap_label_margin
+            + config.heatmap_cbar_margin
+        )
+        fig_h = config.heatmap_cell_size * num_rows + config.heatmap_xtick_margin + config.heatmap_title_margin
         fig, axes = plt.subplots(1, num_retention_pcts, figsize=(fig_w, fig_h), squeeze=False, layout="constrained")
         fig.get_layout_engine().set(wspace=0.02, w_pad=0.01)  # type: ignore[union-attr]
         axes = axes[0]
@@ -1012,33 +1015,30 @@ def _plot_sample_selection_sweep_distribution_gap(  # noqa: PLR0912, PLR0915
                 ax.plot(j, i, marker="*", ms=18, mec=marker_color, mew=1, c=marker_color, zorder=10)
 
         if im is not None:
-            cbar = fig.colorbar(im, ax=list(axes), pad=0.02, shrink=0.8, fraction=0.05, aspect=15)
+            cbar = fig.colorbar(im, ax=list(axes), pad=0.02, shrink=0.7, fraction=0.08, aspect=8)
             cbar.ax.tick_params(labelsize=9)
-            cbar.set_label(f"Gap ({ood_subsplit} - {id_subsplit}) %", fontsize=9)
+            cbar.set_label(
+                f"Gap ({SPLIT_NAME_MAP.get(ood_split, ood_subsplit)} - {SPLIT_NAME_MAP.get(id_split, id_subsplit)}) %",
+                fontsize=9,
+            )
 
         magenta_label = "Better performance and gap than baseline"
         highlight_label = "Better gap than baseline"
         black_label = "Best in group, not better than baseline"
+        equal_tag = "Equals or beats baseline gap"
         legend = [
             Line2D([0], [0], marker="*", color="magenta", linestyle="None", markersize=10, label=magenta_label),
             Line2D([0], [0], marker="*", color=highlight_color, linestyle="None", markersize=10, label=highlight_label),
             Line2D([0], [0], marker="*", color="black", linestyle="None", markersize=10, label=black_label),
-            Line2D(
-                [0],
-                [0],
-                marker="*",
-                color="none",
-                mec="black",
-                alpha=0.1,
-                mew=1.5,
-                markersize=9,
-                label="Equals or beats baseline gap",
-            ),
+            Line2D([0], [0], marker="*", color="none", mec="black", alpha=0.1, mew=1.5, markersize=9, label=equal_tag),
         ]
 
         output_file = output_path / f"{metric}_{id_subsplit}_vs_{ood_subsplit}.png"
         fig.legend(handles=legend, loc="upper right", bbox_to_anchor=(0.99, 0.99), frameon=False, fontsize=7)
-        fig.suptitle(f"Split Gap — {metric.replace('_', ' ')} ({ood_subsplit} - {id_subsplit})")
+        fig.suptitle(
+            f"Split Gap — {(metric[0].upper() + metric[1:]).replace('_', ' ')}"
+            f" ({SPLIT_NAME_MAP.get(ood_split, ood_subsplit)} - {SPLIT_NAME_MAP.get(id_split, id_subsplit)})"
+        )
         fig.savefig(output_file, dpi=200, bbox_inches="tight")
         plt.close(fig)
 

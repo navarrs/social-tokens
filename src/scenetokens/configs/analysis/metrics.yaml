@@ -36,10 +36,10 @@ sample_selection_benchmark: 'causal-benchmark-labeled'
 sample_selection_files: [
   "./meta/sample_selection_results/baselines.csv",
   "./meta/sample_selection_results/random.csv",
-  "./meta/sample_selection_results/kmeans.csv",
   "./meta/sample_selection_results/dentp.csv",
-  "./meta/sample_selection_results/st.csv",
-  "./meta/sample_selection_results/safest.csv",
+  # "./meta/sample_selection_results/kmeans.csv",
+  # "./meta/sample_selection_results/st.csv",
+  # "./meta/sample_selection_results/safest.csv",
 ]
 sample_selection_splits_to_compare: [
   'test/waymo-mini-causal-testing',
@@ -47,13 +47,13 @@ sample_selection_splits_to_compare: [
 ]
 sample_selection_strategies_to_compare: [
   'random_drop',
-  'kmeans_random_drop',
-  'simple_kmeans_cosine_drop',
-  'gumbel_kmeans_cosine_drop',
+  # 'kmeans_random_drop',
+  # 'simple_kmeans_cosine_drop',
+  # 'gumbel_kmeans_cosine_drop',
   'den_tp',
-  'token_random_drop',
-  'simple_token_jaccard_drop',
-  'gumbel_token_jaccard_drop',
+  # 'token_random_drop',
+  # 'simple_token_jaccard_drop',
+  # 'gumbel_token_jaccard_drop',
   # 'simple_token_hamming_drop',
   # 'gumbel_token_hamming_drop',
 ]
@@ -66,6 +66,11 @@ run_sample_selection_sweep_heatmap_analysis: true
 heatmap_colormap: RdYlGn_r
 highlight_color: dodgerblue
 add_rectangle_annotation: false
+heatmap_cell_size: 0.75        # inches per cell (controls overall figure scale)
+heatmap_label_margin: 2.2      # left margin for y-tick labels (inches)
+heatmap_xtick_margin: 1.5      # bottom margin for rotated x-tick labels (inches)
+heatmap_title_margin: 0.5      # top margin for subplot titles + suptitle (inches)
+heatmap_cbar_margin: 0.8       # right margin for colorbar (inches)
 
 # Benchmark analysis settings
 benchmark: null
