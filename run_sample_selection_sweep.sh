@@ -65,6 +65,8 @@ KMEANS_STRATEGIES=(
     kmeans_random_drop
     simple_kmeans_cosine_drop
     gumbel_kmeans_cosine_drop
+    vocab_cluster_hamming_drop
+    vocab_cluster_jaccard_drop
 )
 RANDOM_STRATEGIES=(
     random_drop

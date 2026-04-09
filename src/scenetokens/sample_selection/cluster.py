@@ -12,12 +12,84 @@ from sklearn.cluster import KMeans
 from scenetokens.sample_selection.common import (
     aggregate_selected_samples,
     compute_proportional_number_to_drop,
+    greedy_select_from_sim_matrix,
     make_group_result,
     sort_ids_by_score,
 )
 from scenetokens.schemas import output_schemas as output
 from scenetokens.utils import metrics as metrics_utils
 from scenetokens.utils.model_analysis_utils import get_scenario_dec_embeddings
+
+
+def _get_mode_embeddings(
+    model_outputs: dict[str, output.ModelOutput],
+) -> tuple[NDArray[np.str_], NDArray[np.float64]]:
+    """Extracts per-mode scenario_dec embeddings without flattening, sorted by descending mode probability.
+
+    Modes are reordered so that index 0 is always the highest-probability (best) mode, index 1 the second-best, etc.
+
+    Args:
+        model_outputs: a dictionary containing model outputs per scenario.
+
+    Returns:
+        scenario_ids: array of shape (N,).
+        all_embeddings: array of shape (N, M, Q) — mode embeddings sorted by descending probability.
+    """
+    scenario_ids = []
+    all_embeddings = []
+    for scenario_id, model_output in model_outputs.items():
+        emb = model_output.scenario_embedding.scenario_dec.value.detach().cpu().numpy().astype(np.float64)
+        probs = model_output.trajectory_decoder_output.mode_probabilities.value.detach().cpu().numpy()
+        sort_order = np.argsort(probs)[::-1]  # descending probability
+        scenario_ids.append(scenario_id)
+        all_embeddings.append(emb[sort_order])
+    return np.asarray(scenario_ids), np.stack(all_embeddings)
+
+
+def _allocate_removal_budget(
+    cluster_sizes: dict[int, int],
+    total_removal: int,
+) -> dict[int, int]:
+    """Allocates the removal budget across clusters proportional to their size.
+
+    Larger clusters receive more of the removal budget. Any deficit from integer rounding is
+    distributed to the largest clusters first; any surplus is trimmed from the largest clusters first.
+
+    Args:
+        cluster_sizes: mapping from cluster label to the number of scenarios in that cluster.
+        total_removal: total number of scenarios to remove across all clusters.
+
+    Returns:
+        Dict mapping each cluster label to the number of scenarios to remove from it.
+    """
+    total = sum(cluster_sizes.values())
+    if total == 0:
+        return dict.fromkeys(cluster_sizes, 0)
+
+    allocations: dict[int, int] = {k: int(total_removal * size / total) for k, size in cluster_sizes.items()}
+    remaining = total_removal - sum(allocations.values())
+
+    # Distribute leftover removals to the largest clusters first.
+    for k in sorted(cluster_sizes, key=lambda x: cluster_sizes[x], reverse=True):
+        if remaining == 0:
+            break
+        available = cluster_sizes[k] - allocations[k]
+        if available > 0:
+            add = min(available, remaining)
+            allocations[k] += add
+            remaining -= add
+
+    # Trim any accidental over-allocation from the largest clusters first.
+    if remaining < 0:
+        excess = -remaining
+        for k in sorted(cluster_sizes, key=lambda x: cluster_sizes[x], reverse=True):
+            if excess == 0:
+                break
+            trim = min(allocations[k], excess)
+            allocations[k] -= trim
+            excess -= trim
+
+    return allocations
 
 
 def _fit_kmeans(
@@ -160,6 +232,87 @@ def cosine_selection_per_cluster(config: DictConfig, model_outputs: dict[str, ou
             )
         else:
             selected_samples[cluster_id] = make_group_result(keep=cluster_scenario_ids.tolist(), drop=[])
+
+    aggregate_selected_samples(selected_samples)
+    return selected_samples
+
+
+def vocab_cluster_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput]) -> dict[str, Any]:
+    """Sample selection using a multi-mode pseudo-vocabulary and greedy diversity-based selection.
+
+    Algorithm:
+        1. Extract per-mode decoder embeddings of shape (M, Q) per scenario without flattening.
+        2. Fit KMeans on the best-mode embedding of each scenario to produce K cluster centroids.
+        3. Group scenarios by their best-mode cluster label.
+        4. Label all M mode embeddings per scenario using the fitted centroids to build a pseudo-vocabulary of length M
+            (one cluster label per mode).
+        5. Allocate a removal budget per cluster proportional to cluster size, so larger clusters are pruned more
+            aggressively.
+        6. Within each cluster, compute a pairwise similarity matrix over pseudo-vocabularies using the configured
+            alignment strategy ('hamming' or 'jaccard') and apply greedy submodular selection to retain the most
+            diverse scenarios.
+
+    Args:
+        config: encapsulates model analysis configuration parameters. Requires: percentage_to_keep (float),
+            alignment_strategy (str, 'hamming' or 'jaccard'), num_clusters (int, default 100), seed (int).
+        model_outputs: a dictionary containing model outputs per scenario.
+
+    Returns:
+        selected_samples: a dictionary containing the IDs of the samples to keep or drop.
+    """
+    scenario_ids, all_embeddings = _get_mode_embeddings(model_outputs)
+    num_scenarios = len(scenario_ids)
+
+    if num_scenarios == 0:
+        error_message = (
+            "No valid scenarios found. Check that model_outputs is not empty and have valid scenario embeddings."
+        )
+        raise ValueError(error_message)
+
+    # Step 2: fit KMeans on best-mode (index 0) embeddings only — modes are sorted by descending probability.
+    best_mode_embeddings = all_embeddings[:, 0]  # (N, Q)
+    kmeans, best_mode_labels = _fit_kmeans(best_mode_embeddings, config.get("num_clusters", 100), config.seed)
+
+    # Step 4: label ALL M mode embeddings per scenario using the fitted centroids.
+    num_modes = all_embeddings.shape[1]
+    # Reshape to (N*M, Q), predict, then reshape back to (N, M).
+    all_emb_flat = all_embeddings.reshape(num_scenarios * num_modes, -1)
+    all_labels = kmeans.predict(all_emb_flat).reshape(num_scenarios, num_modes).astype(np.int32)  # (N, M)
+
+    # Step 5: allocate removal budget proportional to cluster size.
+    unique_clusters, cluster_counts = np.unique(best_mode_labels, return_counts=True)
+    cluster_sizes = {int(c): int(cnt) for c, cnt in zip(unique_clusters, cluster_counts, strict=True)}
+    total_removal = int((1 - config.percentage_to_keep) * num_scenarios)
+    removal_budgets = _allocate_removal_budget(cluster_sizes, total_removal)
+
+    alignment_strategy = config.get("alignment_strategy", "hamming")
+    match alignment_strategy:
+        case "hamming":
+            compute_sim_matrix = metrics_utils.compute_pairwise_hamming_similarity
+        case "jaccard":
+            compute_sim_matrix = metrics_utils.compute_pairwise_jaccard_similarity
+        case _:
+            error_message = f"Unsupported alignment_strategy '{alignment_strategy}'. Choose 'hamming' or 'jaccard'."
+            raise ValueError(error_message)
+
+    selected_samples: dict[Any, Any] = {}
+
+    for cluster_id in unique_clusters.tolist():
+        cluster_mask = best_mode_labels == cluster_id
+        cluster_scenario_ids = scenario_ids[cluster_mask]
+        cluster_vocab = all_labels[cluster_mask]  # (cluster_size, M)
+
+        num_to_remove = removal_budgets.get(cluster_id, 0)
+        num_to_keep = len(cluster_scenario_ids) - num_to_remove
+
+        if num_to_remove == 0:
+            selected_samples[cluster_id] = make_group_result(keep=cluster_scenario_ids.tolist(), drop=[])
+            continue
+
+        # Step 6: pairwise similarity matrix over pseudo-vocabularies, then greedy submodular selection.
+        sim_matrix = compute_sim_matrix(cluster_vocab)
+        keep, drop = greedy_select_from_sim_matrix(cluster_scenario_ids, sim_matrix, num_to_keep)
+        selected_samples[cluster_id] = make_group_result(keep=keep, drop=drop)
 
     aggregate_selected_samples(selected_samples)
     return selected_samples

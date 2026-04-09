@@ -39,6 +39,45 @@ def compute_pairwise_cosine_similarity(samples: NDArray[np.float64]) -> NDArray[
     return ((cosine_sim + 1.0) / 2.0).astype(np.float64)
 
 
+def compute_pairwise_hamming_similarity(sequences: NDArray[np.int32]) -> NDArray[np.float64]:
+    """Computes the pairwise Hamming similarity matrix for a set of integer sequences.
+
+    Hamming similarity between two sequences is the fraction of positions where their values match.
+
+    Args:
+        sequences: array of shape (N, L) with integer values.
+
+    Returns:
+        sim_matrix: array of shape (N, N) with values in [0, 1].
+    """
+    length = sequences.shape[1]
+    matches = (sequences[:, None, :] == sequences[None, :, :]).sum(axis=-1)
+    return (matches / length).astype(np.float64)
+
+
+def compute_pairwise_jaccard_similarity(sequences: NDArray[np.int32]) -> NDArray[np.float64]:
+    """Computes the pairwise Jaccard similarity matrix for a set of integer sequences.
+
+    Jaccard similarity between two sequences is the size of their value-set intersection divided by the size of
+    their union, treating each sequence as a set (positional order is ignored).
+
+    Args:
+        sequences: array of shape (N, L) with integer values.
+
+    Returns:
+        sim_matrix: array of shape (N, N) with values in [0, 1].
+    """
+    num_labels = int(sequences.max()) + 1
+    # indicator[i, k] = 1 if value k appears in sequences[i]
+    indicator = np.zeros((len(sequences), num_labels), dtype=np.float64)
+    for i, row in enumerate(sequences):
+        indicator[i, row] = 1.0
+    intersections = indicator @ indicator.T  # (N, N)
+    set_sizes = indicator.sum(axis=1)  # (N,)
+    unions = set_sizes[:, None] + set_sizes[None, :] - intersections  # (N, N)
+    return np.where(unions > 0, intersections / unions, 0.0).astype(np.float64)
+
+
 def compute_jaccard_index(a: set[int], b: set[int]) -> float:
     """Computes the Jaccard Index (Intersection over Union) between two sets.
 

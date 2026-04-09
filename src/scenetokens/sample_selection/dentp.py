@@ -6,7 +6,11 @@ import numpy as np
 from numpy.typing import NDArray
 from omegaconf import DictConfig
 
-from scenetokens.sample_selection.common import aggregate_selected_samples, make_group_result
+from scenetokens.sample_selection.common import (
+    aggregate_selected_samples,
+    greedy_select_from_sim_matrix,
+    make_group_result,
+)
 from scenetokens.schemas import output_schemas as output
 from scenetokens.utils import metrics as metrics_utils
 from scenetokens.utils.constants import INVALID_AGENT_ID
@@ -24,14 +28,7 @@ def _greedy_submodular_select(
     embeddings: NDArray[np.float64],
     num_to_keep: int,
 ) -> tuple[list[str], list[str]]:
-    """Greedy submodular selection using Den-TP's P(S_j) objective.
-
-    Iteratively selects samples that minimise:
-        P(S_j) = Σ_{i ∈ C_k} cos(emb_i, emb_j)  -  Σ_{i ∈ D_k/C_k} cos(emb_i, emb_j)
-                        selected similarity     -      unselected similarity
-
-    Minimising P(S_j) simultaneously rewards diversity w.r.t. already-selected samples (low similarity to C_k) and
-    coverage of the unselected pool (high similarity to D_k/C_k).
+    """Greedy submodular selection using Den-TP's P(S_j) objective with cosine similarity.
 
     NOTE: This implementation uses the model embeddings as a proxy for the gradient features described in the paper,
     since gradient computation requires live model access.
@@ -44,40 +41,8 @@ def _greedy_submodular_select(
     Returns:
         (keep, drop): lists of scenario IDs.
     """
-    num_scenarios = len(scenario_ids)
-    if num_to_keep >= num_scenarios:
-        return scenario_ids.tolist(), []
-    if num_to_keep <= 0:
-        return [], scenario_ids.tolist()
-
-    # Precompute full pairwise cosine similarity matrix (N x N)
     sim_matrix = metrics_utils.compute_pairwise_cosine_similarity(embeddings)
-
-    selected_mask = np.zeros(num_scenarios, dtype=bool)
-
-    # selected_sim[j] = Σ_{i ∈ C_k} cos(emb_i, emb_j) — starts at zero (C_k is empty)
-    selected_sim = np.zeros(num_scenarios, dtype=np.float64)
-
-    # unselected_sim[j] = Σ_{i ∈ D_k\C_k} cos(emb_i, emb_j) — initially all are unselected
-    unselected_sim = sim_matrix.sum(axis=0).copy()
-
-    for _ in range(num_to_keep):
-        # P(S_j) = selected_sim[j] - unselected_sim[j]. We want to select the sample with the lowest P(S_j) to maximize
-        # coverage and diversity.
-        p_scores = selected_sim - unselected_sim
-
-        # Exclude already selected samples by setting their P(S_j) to infinity so they won't be selected again.
-        p_scores[selected_mask] = np.inf
-
-        # Select the sample with the lowest P(S_j) score.
-        best_j = int(np.argmin(p_scores))
-        selected_mask[best_j] = True
-
-        # Incremental update: best_j leaves D_k\C_k and joins C_k
-        selected_sim += sim_matrix[best_j]
-        unselected_sim -= sim_matrix[best_j]
-
-    return scenario_ids[selected_mask].tolist(), scenario_ids[~selected_mask].tolist()
+    return greedy_select_from_sim_matrix(scenario_ids, sim_matrix, num_to_keep)
 
 
 def _dentp_allocate_budget(

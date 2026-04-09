@@ -119,6 +119,61 @@ def weighted_sorting_gumbel(
     return samples[sorted_indices], weights[sorted_indices]
 
 
+def greedy_select_from_sim_matrix(
+    scenario_ids: NDArray[np.str_],
+    sim_matrix: NDArray[np.float64],
+    num_to_keep: int,
+) -> tuple[list[str], list[str]]:
+    """Greedy submodular selection given a precomputed (N x N) similarity matrix.
+
+    Iteratively selects samples that minimise:
+        P(S_j) = Σ_{i ∈ C_k} sim(i, j)  -  Σ_{i ∈ D_k/C_k} sim(i, j)
+                      selected similarity    -    unselected similarity
+
+    Minimising P(S_j) simultaneously rewards diversity w.r.t. already-selected samples (low similarity to C_k) and
+    coverage of the unselected pool (high similarity to D_k/C_k).
+
+    Args:
+        scenario_ids: array of scenario IDs.
+        sim_matrix: precomputed (N, N) pairwise similarity matrix with values in [0, 1].
+        num_to_keep: number of samples to keep.
+
+    Returns:
+        (keep, drop): lists of scenario IDs.
+    """
+    num_scenarios = len(scenario_ids)
+    if num_to_keep >= num_scenarios:
+        return scenario_ids.tolist(), []
+    if num_to_keep <= 0:
+        return [], scenario_ids.tolist()
+
+    selected_mask = np.zeros(num_scenarios, dtype=bool)
+
+    # selected_sim[j] = Σ_{i ∈ C_k} sim(i, j) — starts at zero (C_k is empty)
+    selected_sim = np.zeros(num_scenarios, dtype=np.float64)
+
+    # unselected_sim[j] = Σ_{i ∈ D_k\C_k} sim(i, j) — initially all are unselected
+    unselected_sim = sim_matrix.sum(axis=0).copy()
+
+    for _ in range(num_to_keep):
+        # P(S_j) = selected_sim[j] - unselected_sim[j]. We want to select the sample with the lowest P(S_j) to
+        # maximize coverage and diversity.
+        p_scores = selected_sim - unselected_sim
+
+        # Exclude already selected samples by setting their P(S_j) to infinity so they won't be selected again.
+        p_scores[selected_mask] = np.inf
+
+        # Select the sample with the lowest P(S_j) score.
+        best_j = int(np.argmin(p_scores))
+        selected_mask[best_j] = True
+
+        # Incremental update: best_j leaves D_k\C_k and joins C_k
+        selected_sim += sim_matrix[best_j]
+        unselected_sim -= sim_matrix[best_j]
+
+    return scenario_ids[selected_mask].tolist(), scenario_ids[~selected_mask].tolist()
+
+
 def sort_ids_by_score(
     ids: NDArray[object],
     scores: NDArray[np.float64],

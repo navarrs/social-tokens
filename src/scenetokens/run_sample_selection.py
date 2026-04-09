@@ -80,6 +80,11 @@ def _run_sample_selection(config: DictConfig, model_outputs: dict[str, output.Mo
             selected_samples = sample_selection.cosine_selection_per_cluster(config, model_outputs)
         case SampleSelection.DEN_TP:
             selected_samples = sample_selection.dentp_selection(config, model_outputs)
+        case SampleSelection.VOCAB_CLUSTER_HAMMING_DROP | SampleSelection.VOCAB_CLUSTER_JACCARD_DROP:
+            config.alignment_strategy = (
+                "hamming" if selection_strategy == SampleSelection.VOCAB_CLUSTER_HAMMING_DROP else "jaccard"
+            )
+            selected_samples = sample_selection.vocab_cluster_selection(config, model_outputs)
         case _:
             error_message = f"Unsupported selection strategy: {selection_strategy}"
             raise ValueError(error_message)

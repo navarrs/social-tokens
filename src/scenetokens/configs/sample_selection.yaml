@@ -4,22 +4,24 @@ defaults:
   - _self_
 
 # Sample selection
-create_training_batch_cache: true # if 'true' it will create a batch cache for the train data using the pretrained model.
+create_training_batch_cache: false # if 'true' it will create a batch cache for the train data using the pretrained model.
 model:
   config:
     sample_selection: true
 
 selection_strategies:
   # - random_drop
-  - token_random_drop
-  - simple_token_jaccard_drop
-  - simple_token_hamming_drop
-  - gumbel_token_jaccard_drop
-  - gumbel_token_hamming_drop
+  # - token_random_drop
+  # - simple_token_jaccard_drop
+  # - simple_token_hamming_drop
+  # - gumbel_token_jaccard_drop
+  # - gumbel_token_hamming_drop
   # - kmeans_random_drop
   # - simple_kmeans_cosine_drop
   # - gumbel_kmeans_cosine_drop
   # - den_tp
+  - vocab_cluster_hamming_drop
+  - vocab_cluster_jaccard_drop
 selection_strategy: null
 percentages_to_keep:
   - 0.45
@@ -64,7 +66,7 @@ paths:
 
   # Safe-ST Model with focal loss (ckpt: epoch_105.ckpt)
   # uv run -m scenetokens.run_sample_selection model=safe_scenetokens ckpt_path=/data/driving/waymo/causal-benchmark-labeled/model_cache/causal-benchmark-labeled_safe-scenetokens_focal_gamma_hc_2026-03-12_12-08-48/ckpts/causal-benchmark-labeled_safe-scenetokens_focal_gamma_hc/epoch_105.ckpt
-  experiment_dir: causal-benchmark-labeled_safe-scenetokens_focal_gamma_hc_2026-03-12_12-08-48
+  # experiment_dir: causal-benchmark-labeled_safe-scenetokens_focal_gamma_hc_2026-03-12_12-08-48
 
   # Causal-ST Model, run as: (ckpt: epoch_095.ckpt)
   # uv run -m scenetokens.sample_selection model=causal_scenetokens ckpt_path=/data/driving/waymo/causal-benchmark-labeled/model_cache/causal-benchmark-labeled_causal-scenetokens_2026-02-05_15-05-18/ckpts/causal-benchmark-labeled_causal-scenetokens/epoch_095.ckpt
@@ -72,4 +74,4 @@ paths:
 
   # Wayformer (ckpt: epoch_093.ckpt) -- used for K-Means selection strategy and DenTP selection strategy
   # uv run -m scenetokens.sample_selection model=wayformer ckpt_path=/data/driving/waymo/causal-benchmark-labeled/model_cache/causal-benchmark-labeled_wayformer_2026-02-19_01-23-56/ckpts/causal-benchmark-labeled_wayformer/epoch_093.ckpt
-  # experiment_dir: causal-benchmark-labeled_wayformer_2026-02-19_01-23-56
+  experiment_dir: causal-benchmark-labeled_wayformer_2026-02-19_01-23-56

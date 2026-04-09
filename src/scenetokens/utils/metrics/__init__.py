@@ -15,6 +15,8 @@ from scenetokens.utils.metrics.similarity_metrics import (
     compute_hamming_distance,
     compute_jaccard_index,
     compute_pairwise_cosine_similarity,
+    compute_pairwise_hamming_similarity,
+    compute_pairwise_jaccard_similarity,
 )
 from scenetokens.utils.metrics.trajectory_metrics import compute_displacement_error, compute_miss_rate
 
@@ -33,5 +35,7 @@ __all__ = [
     "compute_multiclass_accuracy",
     "compute_mutual_information",
     "compute_pairwise_cosine_similarity",
+    "compute_pairwise_hamming_similarity",
+    "compute_pairwise_jaccard_similarity",
     "compute_perplexity",
 ]
