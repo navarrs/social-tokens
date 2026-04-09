@@ -26,10 +26,10 @@ import pyrootutils
 from omegaconf import DictConfig
 
 from scenetokens import benchmarks, utils
-from scenetokens.benchmarks.common import Benchmark
+from scenetokens.benchmarks import Benchmark
 
 
-log = utils.get_pylogger(__name__)
+_LOGGER = utils.get_pylogger(__name__)
 
 pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
@@ -37,7 +37,7 @@ pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 @hydra.main(version_base="1.3", config_path="configs", config_name="create_benchmark.yaml")
 def main(cfg: DictConfig) -> None:
     """Hydra entry point for creating benchmark dataset splits."""
-    log.info("Printing cfg tree with Rich! <cfg.extras.print_cfg=True>")
+    _LOGGER.info("Printing cfg tree with Rich! <cfg.extras.print_cfg=True>")
     utils.print_config_tree(cfg, resolve=True, save_to_file=False)
 
     benchmark = Benchmark(cfg.benchmark_name)
@@ -78,6 +78,8 @@ def main(cfg: DictConfig) -> None:
                 map_range=cfg.map_range,
                 reduction=cfg.reduction,
             )
+        case _:
+            _LOGGER.error("Unsupported benchmark: %s", cfg.benchmark_name)
 
 
 if __name__ == "__main__":
