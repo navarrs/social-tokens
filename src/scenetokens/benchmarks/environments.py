@@ -15,14 +15,13 @@ See configs/benchmark/environments.yaml for all available options.
 
 import functools
 import multiprocessing
-import operator
 import pickle  # nosec B403
+import shutil
 from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
 import netlsd
-import networkx as nx
 import numpy as np
 import pandas as pd
 from matplotlib.cm import get_cmap
@@ -37,236 +36,8 @@ from sklearn.metrics import silhouette_samples
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
-
-# Color scheme for each map element type in graph visualizations.
-_NODE_COLORS: dict[str, str] = {
-    "lane": "#4A90D9",
-    "road_line": "#F5A623",
-    "road_edge": "#7B68EE",
-    "crosswalk": "#50C878",
-    "speed_bump": "#FF6B6B",
-    "stop_sign": "#FF4500",
-}
-_DEFAULT_NODE_COLOR = "#AAAAAA"
-_MAP_ELEMENT_TYPES = ("lane", "road_line", "road_edge", "crosswalk", "speed_bump", "stop_sign")
-
-
-def _rotate_points_along_z(points: NDArray[np.float64], angle: float) -> NDArray[np.float64]:
-    """Rotates the (x, y) columns of an arbitrary-shape array by angle radians around the Z axis.
-
-    Mirrors the rotation used in base_dataset.py's transform pipeline. All other columns are left unchanged.
-
-    Args:
-        points: Array whose last dimension is at least 2, with x at index 0 and y at index 1.
-        angle: Rotation angle in radians (positive = counter-clockwise).
-
-    Returns:
-        Copy of points with (x, y) rotated in place.
-    """
-    cos_a, sin_a = np.cos(angle), np.sin(angle)
-    rot = np.array([[cos_a, sin_a], [-sin_a, cos_a]])
-    result = points.copy()
-    result[..., :2] = points[..., :2] @ rot.T
-    return result
-
-
-def _filter_map_elements_by_proximity(  # noqa: PLR0913
-    map_infos: dict[str, Any],
-    all_polylines: NDArray[np.float64],
-    ego_xy: NDArray[np.float64],
-    k: int,
-    ego_heading: float = 0.0,
-    map_range: float = 100.0,
-) -> dict[str, Any]:
-    """Returns a filtered copy of map_infos keeping map elements that are within range of the ego agent.
-
-    Mirrors the selection logic in base_dataset.py's ``get_centered_map_data``:
-
-    1. All polyline points are transformed to the ego-centric frame (translate by -ego_xy, rotate by -ego_heading).
-    2. A map element passes the **range filter** if any of its points fall within the L∞ box
-       ``|x| < map_range AND |y| < map_range``.
-    3. Among passing elements, the top-K are kept by ascending **average L2 distance** of their points from the
-       ego-frame origin.
-
-    Node positions stored in the graph remain in world coordinates — only the filtering step uses the ego frame.
-
-    Args:
-        map_infos: Map information dictionary from a scenario pickle file.
-        all_polylines: Array of shape (N, >=2) with all polyline points in world coordinates.
-        ego_xy: Ego position (x, y) at the current time step.
-        k: Maximum number of map elements to retain.
-        ego_heading: Ego heading in radians. Used to rotate polyline points to the ego-centric frame before the range
-            check, matching base_dataset.py's rotation convention. Defaults to 0.0.
-        map_range: L∞ half-width of the ego-centric range box in metres. Elements with at least one point inside the
-            box are candidates. Defaults to 100.0.
-
-    Returns:
-        Shallow copy of map_infos with each element list filtered to the K nearest in-range elements.
-    """
-    if all_polylines.shape[0] == 0:
-        return map_infos
-
-    pts_ego: NDArray[np.float64] = all_polylines.copy()
-    pts_ego[..., :2] -= ego_xy[:2]
-    pts_ego = _rotate_points_along_z(pts_ego, -ego_heading)
-
-    candidates: list[tuple[float, str, dict]] = []  # pyright: ignore[reportMissingTypeArgument]
-    for etype in _MAP_ELEMENT_TYPES:
-        for element in map_infos.get(etype, []):
-            start, end = element.get("polyline_index", (0, 0))
-            if end <= start:
-                continue
-            pts = pts_ego[start:end, :2]
-
-            in_range = (np.abs(pts[:, 0]) < map_range) & (np.abs(pts[:, 1]) < map_range)
-            if not in_range.any():
-                continue
-
-            avg_dist = float(np.linalg.norm(pts, axis=-1).mean())
-            candidates.append((avg_dist, etype, element))
-
-    candidates.sort(key=operator.itemgetter(0))
-    filtered: dict[str, list] = {etype: [] for etype in _MAP_ELEMENT_TYPES}  # pyright: ignore[reportMissingTypeArgument]
-    for _, etype, element in candidates[:k]:
-        filtered[etype].append(element)
-
-    return {**map_infos, **filtered}
-
-
-def _map_infos_to_graph(
-    map_infos: dict[str, Any],
-    ego_xy: NDArray[np.float64] | None = None,
-    k_polylines: int | None = None,
-    ego_heading: float = 0.0,
-    map_range: float = 100.0,
-) -> nx.DiGraph:
-    """Converts scenario map information into a directed NetworkX graph.
-
-    Nodes represent lanes, road lines, road edges, crosswalks, speed bumps, and stop signs. Directed edges connect
-    lanes via their entry/exit lane relationships. Each node stores the centroid (x, y, z) of its polyline as
-    position attributes when available.
-
-    Args:
-        map_infos: Map information dictionary from a scenario pickle file.
-        ego_xy: If provided together with k_polylines, triggers ego-centric filtering via
-            `_filter_map_elements_by_proximity`.
-        k_polylines: Maximum number of map elements to retain when ego_xy is set.
-        ego_heading: Ego heading in radians, used for the ego-frame range check. Defaults to 0.0.
-        map_range: L∞ half-width of the ego-centric range box in metres. Defaults to 100.0.
-
-    Returns:
-        nx.DiGraph: Directed graph representing the road topology.
-    """
-    graph = nx.DiGraph()
-    all_polylines: NDArray[np.float64] = np.asarray(map_infos.get("all_polylines", np.empty((0, 7))))
-
-    if ego_xy is not None and k_polylines is not None:
-        map_infos = _filter_map_elements_by_proximity(
-            map_infos, all_polylines, ego_xy, k_polylines, ego_heading=ego_heading, map_range=map_range
-        )
-
-    def _node_pos(element: dict[str, Any]) -> dict[str, float]:
-        start, end = element.get("polyline_index", (0, 0))
-        if all_polylines.shape[0] > 0 and end > start:
-            centroid = all_polylines[start:end, :3].mean(axis=0)
-            return {"x": float(centroid[0]), "y": float(centroid[1]), "z": float(centroid[2])}
-        return {}
-
-    for lane in map_infos.get("lane", []):
-        lane_id = lane["id"]
-        graph.add_node(lane_id, type="lane", speed_limit_mph=lane.get("speed_limit_mph", 0.0), **_node_pos(lane))
-        for entry_id in lane.get("entry_lanes", []):
-            graph.add_edge(entry_id, lane_id)
-        for exit_id in lane.get("exit_lanes", []):
-            graph.add_edge(lane_id, exit_id)
-
-    for road_line in map_infos.get("road_line", []):
-        graph.add_node(road_line["id"], type="road_line", **_node_pos(road_line))
-
-    for road_edge in map_infos.get("road_edge", []):
-        graph.add_node(road_edge["id"], type="road_edge", **_node_pos(road_edge))
-
-    for crosswalk in map_infos.get("crosswalk", []):
-        graph.add_node(crosswalk["id"], type="crosswalk", **_node_pos(crosswalk))
-
-    for speed_bump in map_infos.get("speed_bump", []):
-        graph.add_node(speed_bump["id"], type="speed_bump", **_node_pos(speed_bump))
-
-    for stop_sign in map_infos.get("stop_sign", []):
-        graph.add_node(stop_sign["id"], type="stop_sign", **_node_pos(stop_sign))
-
-    return graph
-
-
-def _simplify_graph(graph: nx.DiGraph) -> nx.DiGraph:
-    """Returns a simplified copy of the road topology graph for more stable encoding.
-
-    Two simplifications are applied in order:
-
-    1. **Remove isolated nodes** — nodes with no edges (degree zero) do not contribute to the graph's Laplacian
-        structure but inflate the heat-trace baseline, causing NetLSD descriptors to vary with the number of
-        non-connected map elements rather than road topology.
-    2. **Keep the largest weakly-connected component** — small disconnected lane fragments at the scene boundary add
-        noise without representing the main road network.
-
-    Args:
-        graph: Full road topology graph produced by `_map_infos_to_graph`.
-
-    Returns:
-        Simplified directed graph containing only the largest connected lane subgraph.
-    """
-    graph = graph.copy()
-    graph.remove_nodes_from(list(nx.isolates(graph)))
-
-    if graph.number_of_nodes() == 0:
-        return graph
-
-    largest_wcc = max(nx.weakly_connected_components(graph), key=len)
-    return nx.DiGraph(graph.subgraph(largest_wcc))
-
-
-def _build_positioned_graph(
-    map_infos: dict[str, Any],
-    ego_xy: NDArray[np.float64] | None = None,
-    k_polylines: int | None = None,
-    ego_heading: float = 0.0,
-    map_range: float = 100.0,
-) -> tuple[nx.DiGraph, dict[Any, NDArray[np.float64]]]:
-    """Builds a map graph and extracts a matplotlib-compatible position dict from node attributes.
-
-    Reads (x, y) from node attributes set by `_map_infos_to_graph`. When ego_xy and k_polylines are provided the
-    graph is filtered using the ego-centric L∞ range box and simplified, matching the graph that was passed to NetLSD
-    during encoding. Nodes without position attributes are placed via a spring layout fallback.
-
-    Args:
-        map_infos: Map information dictionary from a scenario pickle file.
-        ego_xy: Ego position (x, y). When provided together with k_polylines, triggers ego-centric filtering.
-        k_polylines: Maximum number of map elements to retain when ego_xy is set.
-        ego_heading: Ego heading in radians, forwarded to `_map_infos_to_graph`. Defaults to 0.0.
-        map_range: L∞ half-width of the ego-centric range box in metres. Defaults to 100.0.
-
-    Returns:
-        The directed graph and a dict mapping node id to (x, y) position.
-    """
-    graph = _simplify_graph(
-        _map_infos_to_graph(
-            map_infos, ego_xy=ego_xy, k_polylines=k_polylines, ego_heading=ego_heading, map_range=map_range
-        )
-    )
-
-    pos: dict[Any, NDArray[np.float64]] = {
-        n: np.array([data["x"], data["y"]]) for n, data in graph.nodes(data=True) if "x" in data and "y" in data
-    }
-
-    missing = [n for n in graph.nodes if n not in pos]
-    if missing:
-        if pos:
-            fallback = nx.spring_layout(graph, pos=dict(pos), fixed=list(pos.keys()), seed=0)
-        else:
-            fallback = nx.spring_layout(graph, seed=0)
-        pos.update({n: fallback[n] for n in missing})
-
-    return graph, pos
+from scenetokens.benchmarks.common import copy_scenario, create_split_dirs, get_scenario_mapping
+from scenetokens.utils.map_utils import map_infos_to_graph, simplify_graph, visualize_scenario_graph
 
 
 def _compute_graph_descriptor(
@@ -314,12 +85,12 @@ def _compute_graph_descriptor(
         ego_heading = float(trajs[6])
 
     map_infos = scenario.get("map_infos", {})
-    graph = _simplify_graph(
-        _map_infos_to_graph(
+    graph = simplify_graph(
+        map_infos_to_graph(
             map_infos,
-            ego_xy=ego_xy,
+            ref_xy=ego_xy,
             k_polylines=k_polylines if ego_centered else None,
-            ego_heading=ego_heading,
+            ref_heading=ego_heading,
             map_range=map_range,
         )
     )
@@ -457,6 +228,8 @@ def select_train_test_splits(
     clusters_df: pd.DataFrame,
     silhouette_scores: NDArray[np.float64],
     target_train_ratio: float = 0.80,
+    validation_ratio: float = 0.10,
+    rng: np.random.Generator | None = None,
 ) -> pd.DataFrame:
     """Assigns each scenario to an output split (training/validation/testing) based on cluster hardness.
 
@@ -464,15 +237,14 @@ def select_train_test_splits(
     i.e. most ambiguous) are designated as the test set. Clusters are greedily added to the test set until the test
     fraction reaches approximately (1 - target_train_ratio) of all scenarios.
 
-    Within train/val clusters, each scenario's output split mirrors its original input split:
-    - "training" → "training"
-    - "validation" → "validation"
-    - "testing" (originally in a test folder but now in a train cluster) → "training"
+    The remaining (non-test) scenarios are randomly split into validation and training according to validation_ratio.
 
     Args:
         clusters_df: DataFrame with columns: scenario_id, split, cluster.
         silhouette_scores: Per-sample silhouette scores aligned with clusters_df rows.
         target_train_ratio: Desired fraction of all scenarios in the training+validation output sets. Defaults to 0.80.
+        validation_ratio: Fraction of non-test scenarios assigned to validation. Defaults to 0.10.
+        rng: NumPy random generator for reproducible shuffling. If None, uses np.random.shuffle.
 
     Returns:
         Copy of clusters_df with added columns: silhouette_score, input_set, output_set.
@@ -499,84 +271,23 @@ def select_train_test_splits(
         test_clusters.add(int(row["cluster"]))
         accumulated += int(row["size"])
 
+    non_test_indices = df.index[~df["cluster"].isin(test_clusters)].tolist()
+    if rng is not None:
+        rng.shuffle(non_test_indices)
+    else:
+        np.random.default_rng().shuffle(non_test_indices)
+    num_val = int(len(non_test_indices) * validation_ratio)
+    val_indices: set[int] = set(non_test_indices[:num_val])
+
     def _assign_output_set(row: pd.Series) -> str:  # pyright: ignore[reportMissingTypeArgument]
         if row["cluster"] in test_clusters:
             return "testing"
-        if row["input_set"] == "validation":
+        if row.name in val_indices:
             return "validation"
         return "training"
 
     df["output_set"] = df.apply(_assign_output_set, axis=1)
     return df
-
-
-def _visualize_scenario_graph(
-    filepath: Path,
-    output_dir: Path,
-    *,
-    ego_centered: bool = False,
-    k_polylines: int = 100,
-    map_range: float = 100.0,
-) -> None:
-    """Renders a scenario's road topology graph and saves it as a PNG.
-
-    Nodes are drawn at their real-world (x, y) map coordinates and coloured by element type. Lane connectivity edges
-    are shown as directed arrows. When ego_centered is True the graph is filtered and simplified to match exactly
-    what was encoded by NetLSD.
-
-    Args:
-        filepath: Path to the scenario pickle file.
-        output_dir: Directory in which to save the PNG.
-        ego_centered: If True, restrict the graph using the ego-centric L∞ range filter, reproducing the encoding
-            graph. Defaults to False.
-        k_polylines: Maximum number of map elements to retain when ego_centered is True. Defaults to 100.
-        map_range: L∞ half-width of the ego-centric range box in metres. Defaults to 100.0.
-    """
-    try:
-        with filepath.open("rb") as f:
-            scenario = pickle.load(f)  # nosec B301
-    except (OSError, pickle.UnpicklingError):
-        return
-
-    scenario_id = scenario.get("scenario_id", filepath.stem)
-    map_infos = scenario.get("map_infos", {})
-
-    ego_xy: NDArray[np.float64] | None = None
-    ego_heading: float = 0.0
-    if ego_centered:
-        sdc_track_index = scenario["sdc_track_index"]
-        curr_time_index = scenario["current_time_index"]
-        trajs = scenario["track_infos"]["trajs"][sdc_track_index, curr_time_index]
-        ego_xy = trajs[:2]
-        ego_heading = float(trajs[6])
-
-    graph, pos = _build_positioned_graph(
-        map_infos,
-        ego_xy=ego_xy,
-        k_polylines=k_polylines if ego_centered else None,
-        ego_heading=ego_heading,
-        map_range=map_range,
-    )
-
-    if graph.number_of_nodes() == 0:
-        return
-
-    node_colors = [_NODE_COLORS.get(graph.nodes[n].get("type", ""), _DEFAULT_NODE_COLOR) for n in graph.nodes]
-
-    fig, ax = plt.subplots(figsize=(8, 8))
-    nx.draw_networkx_nodes(graph, pos=pos, ax=ax, node_color=node_colors, node_size=20)
-    nx.draw_networkx_edges(graph, pos=pos, ax=ax, edge_color="#CCCCCC", arrowsize=6, width=0.5)
-    ax.set_axis_off()
-
-    handles = [
-        Line2D([0], [0], marker="o", color="w", markerfacecolor=color, markersize=8, label=label)
-        for label, color in _NODE_COLORS.items()
-    ]
-    ax.legend(handles=handles, loc="upper right", fontsize=7, framealpha=0.7)
-    ax.set_title(f"{scenario_id}", fontsize=8)
-    fig.tight_layout()
-    fig.savefig(str(output_dir / f"{scenario_id}.png"), dpi=100, bbox_inches="tight")
-    plt.close(fig)
 
 
 def visualize_clusters(  # noqa: PLR0913, PLR0915
@@ -631,7 +342,7 @@ def visualize_clusters(  # noqa: PLR0913, PLR0915
         for scenario_id in tqdm(chosen, desc=f"Visualizing cluster {cluster_id}", leave=False):
             filepath = filepath_map.get(str(scenario_id))
             if filepath is not None:
-                _visualize_scenario_graph(
+                visualize_scenario_graph(
                     filepath, cluster_dir, ego_centered=ego_centered, k_polylines=k_polylines, map_range=map_range
                 )
 
@@ -744,7 +455,8 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
     Args:
         config: Hydra config.
             Expected keys: input_data_path, output_data_path, cache_path, n_clusters, n_examples, sample_percentage,
-            num_scenarios, num_workers, ego_centered, k_polylines, seed, overwrite, map_range, reduction.
+            num_scenarios, num_workers, ego_centered, k_polylines, seed, overwrite, map_range, reduction,
+            validation_ratio.
 
     Raises:
         ValueError: If no valid scenario descriptors could be computed.
@@ -825,7 +537,7 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
     sil_scores: NDArray[np.float64] = np.asarray(silhouette_samples(all_scaled_matrix, all_labels_array))
 
     clusters_df = pd.DataFrame({"scenario_id": all_ids, "split": all_splits, "cluster": all_labels_array})
-    benchmark_df = select_train_test_splits(clusters_df, sil_scores)
+    benchmark_df = select_train_test_splits(clusters_df, sil_scores, validation_ratio=config.validation_ratio, rng=rng)
 
     output_df = benchmark_df[["scenario_id", "cluster", "silhouette_score", "input_set", "output_set"]].rename(
         columns={"cluster": "cluster_label"}
@@ -859,6 +571,37 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
     print("\nOutput split distribution:")
     for split_name, count in split_counts.items():
         print(f"  {split_name}: {count} ({count / len(benchmark_df):.1%})")
+
+    descriptor_cache = _load_descriptor_cache(descriptor_filepath)
+    id_to_filepath: dict[str, Path] = {v[0]: Path(k) for k, v in descriptor_cache.items()}
+    input_scenario_mapping = {sid: id_to_filepath[sid] for sid in benchmark_df["scenario_id"] if sid in id_to_filepath}
+
+    create_split_dirs(output_path)
+
+    output_scenario_mapping: dict[str, Path] = {}
+    for split in ["training", "validation", "testing"]:
+        split_ids = benchmark_df[benchmark_df["output_set"] == split]["scenario_id"].tolist()
+        output_scenario_mapping.update(get_scenario_mapping(split_ids, output_path, split))
+
+    with multiprocessing.Pool(config.num_workers) as pool:
+        list(
+            tqdm(
+                pool.imap_unordered(
+                    functools.partial(
+                        copy_scenario,
+                        input_scenario_mapping=input_scenario_mapping,
+                        output_scenario_mapping=output_scenario_mapping,
+                    ),
+                    list(output_scenario_mapping.keys()),
+                ),
+                total=len(output_scenario_mapping),
+                desc="Copying scenarios",
+            )
+        )
+
+    cluster_results_path = cache_path / "cluster_results"
+    if cluster_results_path.exists():
+        shutil.rmtree(cluster_results_path)
 
     sample_cluster_df = benchmark_df.iloc[: len(sample_ids)].copy()
     visualize_clusters(

@@ -29,5 +29,8 @@ map_range: 100.0
 # Dimensionality reduction for the scatter plot: 'pca' or 'tsne'.
 reduction: tsne
 
+# Fraction of non-test scenarios assigned to the validation split.
+validation_ratio: 0.10
+
 # Cache path
 cache_path: /data/driving/waymo/environment
