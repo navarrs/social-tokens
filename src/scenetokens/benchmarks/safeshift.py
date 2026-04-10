@@ -16,7 +16,7 @@ See configs/benchmark/safeshift.yaml for all available options.
 import itertools
 import multiprocessing
 import pickle
-import shutil
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -27,26 +27,10 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 from scenetokens import utils
-from scenetokens.benchmarks.common import Benchmark, create_split_dirs
+from scenetokens.benchmarks.common import Benchmark, copy_scenario, create_split_dirs
 
 
 _LOGGER = utils.get_pylogger(__name__)
-
-
-def _copy_scenario(scenario_id: str, input_filepath: Path, destination_path: Path) -> None:
-    """Copies a scenario file to the destination path and removes the source.
-
-    Args:
-        scenario_id: ID of the scenario used as the output filename stem.
-        input_filepath: Source filepath of the scenario.
-        destination_path: Directory where the scenario will be copied.
-    """
-    if not input_filepath.exists():
-        _LOGGER.warning("File not found, skipping: %s", input_filepath)
-        return
-
-    shutil.copy(input_filepath, destination_path / f"{scenario_id}.pkl")
-    input_filepath.unlink()
 
 
 def _verify_splits(output_path: Path, scores_path: Path, prefix: str) -> None:
@@ -127,7 +111,7 @@ def create_safeshift_benchmark(config: DictConfig) -> None:
             if input_filepath is None:
                 num_not_found += 1
                 continue
-            tasks.append((scenario_id, input_filepath, output_split_path))
+            tasks.append((scenario_id, input_filepath, output_split_path / f"{scenario_id}.pkl"))
 
         if num_not_found:
             _LOGGER.warning("Split '%s': %d scenarios not found in input directory", split, num_not_found)
@@ -136,7 +120,7 @@ def create_safeshift_benchmark(config: DictConfig) -> None:
     with multiprocessing.Pool(config.num_workers) as pool:
         list(
             tqdm(
-                pool.starmap(_copy_scenario, tasks),
+                pool.starmap(partial(copy_scenario, unlink_source=config.unlink_source), tasks),
                 total=len(tasks),
                 desc="Copying scenarios",
             )

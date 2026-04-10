@@ -1,6 +1,7 @@
 """Shared helpers used across benchmark creation modules."""
 
 import shutil
+from collections.abc import Iterable
 from enum import Enum
 from pathlib import Path
 
@@ -17,15 +18,15 @@ class Benchmark(Enum):
     ENVIRONMENTS = "environments"
 
 
-_DEFAULT_SPLITS: list[str] = ["training", "validation", "testing"]
+_DEFAULT_SPLITS: tuple[str, ...] = ("training", "validation", "testing")
 
 
-def create_split_dirs(output_path: Path, splits: list[str] = _DEFAULT_SPLITS) -> None:
+def create_split_dirs(output_path: Path, splits: Iterable[str] = _DEFAULT_SPLITS) -> None:
     """Creates split subdirectories under output_path.
 
     Args:
         output_path: Root directory under which split subdirs are created.
-        splits: List of split names. Defaults to ["training", "validation", "testing"].
+        splits: Split names. Defaults to ("training", "validation", "testing").
     """
     for split in splits:
         (output_path / split).mkdir(parents=True, exist_ok=True)
@@ -57,24 +58,29 @@ def get_scenario_mapping(
         split: Data split (e.g., 'training', 'validation', 'testing').
 
     Returns:
-        Mapping from scenario IDs to output file paths.
+        Mapping from scenario IDs to output file paths (each ending in .pkl).
     """
-    return {scenario_id: output_data_path / split / scenario_id for scenario_id in scenario_ids}
+    return {scenario_id: output_data_path / split / f"{scenario_id}.pkl" for scenario_id in scenario_ids}
 
 
 def copy_scenario(
     scenario_id: str,
-    input_scenario_mapping: dict[str, Path],
-    output_scenario_mapping: dict[str, Path],
+    input_filepath: Path,
+    output_filepath: Path,
+    *,
+    unlink_source: bool = False,
 ) -> None:
-    """Copies a scenario file from the input location to the output location.
+    """Copies a scenario file from input_filepath to output_filepath.
 
     Args:
-        scenario_id: Scenario ID used as the key in both mappings.
-        input_scenario_mapping: Maps scenario IDs to source file paths.
-        output_scenario_mapping: Maps scenario IDs to destination file paths.
+        scenario_id: Scenario ID, used only for warning messages.
+        input_filepath: Source file path.
+        output_filepath: Destination file path.
+        unlink_source: If True, delete the source file after a successful copy. Defaults to False.
     """
-    if scenario_id not in input_scenario_mapping:
-        _LOGGER.warning("Scenario %s not found in input mapping.", scenario_id)
+    if not input_filepath.exists():
+        _LOGGER.warning("Scenario %s not found at %s.", scenario_id, input_filepath)
         return
-    shutil.copy2(input_scenario_mapping[scenario_id], output_scenario_mapping[scenario_id])
+    shutil.copy2(input_filepath, output_filepath)
+    if unlink_source:
+        input_filepath.unlink()

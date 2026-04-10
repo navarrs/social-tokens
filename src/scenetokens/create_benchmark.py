@@ -35,7 +35,7 @@ pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 @hydra.main(version_base="1.3", config_path="configs", config_name="create_benchmark.yaml")
 def main(cfg: DictConfig) -> None:
     """Hydra entry point for creating benchmark dataset splits."""
-    _LOGGER.info("Printing cfg tree with Rich! <cfg.extras.print_cfg=True>")
+    _LOGGER.info("Printing config tree")
     utils.print_config_tree(cfg, resolve=True, save_to_file=False)
 
     benchmark = Benchmark(cfg.benchmark_name)
