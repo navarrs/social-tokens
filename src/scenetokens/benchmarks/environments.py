@@ -25,8 +25,11 @@ import netlsd
 import networkx as nx
 import numpy as np
 import pandas as pd
+from matplotlib.cm import get_cmap
 from matplotlib.lines import Line2D
+from matplotlib.markers import MarkerStyle
 from numpy.typing import NDArray
+from omegaconf import DictConfig
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
@@ -572,7 +575,7 @@ def _visualize_scenario_graph(
     ax.legend(handles=handles, loc="upper right", fontsize=7, framealpha=0.7)
     ax.set_title(f"{scenario_id}", fontsize=8)
     fig.tight_layout()
-    fig.savefig(output_dir / f"{scenario_id}.png", dpi=100, bbox_inches="tight")
+    fig.savefig(str(output_dir / f"{scenario_id}.png"), dpi=100, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -641,12 +644,12 @@ def visualize_clusters(  # noqa: PLR0913, PLR0915
 
     labels = clusters_df["cluster"].to_numpy()
     n_clusters = int(labels.max()) + 1
-    cmap = plt.get_cmap("tab20", n_clusters)
+    cmap = get_cmap("tab20", n_clusters)
 
     if reduction == "tsne":
-        n_pre = min(50, descriptor_matrix.shape[1])
-        pre_coords = PCA(n_components=n_pre, random_state=seed).fit_transform(descriptor_matrix)
-        coords = TSNE(n_components=2, random_state=seed, init="pca", learning_rate="auto").fit_transform(pre_coords)
+        coords = TSNE(n_components=2, random_state=seed, init="pca", learning_rate="auto").fit_transform(
+            descriptor_matrix
+        )
         xlabel, ylabel, title = "t-SNE 1", "t-SNE 2", "Environment clusters (t-SNE of NetLSD descriptors)"
     else:
         pca = PCA(n_components=2, random_state=seed)
@@ -671,7 +674,7 @@ def visualize_clusters(  # noqa: PLR0913, PLR0915
                 s=12,
                 alpha=0.6,
                 linewidths=0,
-                marker="o",
+                marker=MarkerStyle("o"),
                 label="train/val",
             )
         if test_mask.any():
@@ -686,7 +689,7 @@ def visualize_clusters(  # noqa: PLR0913, PLR0915
                 alpha=0.8,
                 linewidths=0.5,
                 edgecolors="black",
-                marker="x",
+                marker=MarkerStyle("x"),
                 label="test",
             )
     else:
@@ -720,26 +723,12 @@ def visualize_clusters(  # noqa: PLR0913, PLR0915
 
     fig.tight_layout()
     scatter_path = cluster_results_path / "cluster_scatter.png"
-    fig.savefig(scatter_path, dpi=150, bbox_inches="tight")
+    fig.savefig(str(scatter_path), dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved scatter plot to {scatter_path}")
 
 
-def create_environments(  # noqa: PLR0913, PLR0915
-    input_data_path: Path,
-    output_path: Path,
-    n_clusters: int = 10,
-    n_examples: int = 30,
-    sample_percentage: float = 0.10,
-    num_scenarios: int | None = None,
-    num_workers: int = 8,
-    ego_centered: bool = False,  # noqa: FBT001, FBT002
-    k_polylines: int = 384,
-    seed: int = 42,
-    overwrite: bool = False,  # noqa: FBT001, FBT002
-    map_range: float = 100.0,
-    reduction: str = "pca",
-) -> None:
+def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
     """Clusters scenarios by road topology using NetLSD graph descriptors and KMeans.
 
     The pipeline runs in two phases:
@@ -753,32 +742,30 @@ def create_environments(  # noqa: PLR0913, PLR0915
     set so that the test split is more challenging. The results are saved as `environment_benchmark.csv`.
 
     Args:
-        input_data_path: Path to the processed scenario data with train/val/test splits.
-        output_path: Path to the output directory.
-        n_clusters: Number of KMeans clusters. Defaults to 10.
-        n_examples: Number of graph visualizations to save per cluster. Defaults to 30.
-        sample_percentage: Fraction of all scenarios used to fit the scaler and KMeans model. Defaults to 0.10.
-        num_scenarios: Explicit number of scenarios to use for fitting. Overrides sample_percentage when set.
-        num_workers: Number of parallel workers. Defaults to 8.
-        ego_centered: If True, restrict each scenario's graph using the ego-centric L∞ range filter.
-        k_polylines: Maximum number of map elements to retain when ego_centered is True. Defaults to 384.
-        seed: Random seed for KMeans, sampling, and visualization. Defaults to 42.
-        overwrite: If True, recompute all descriptors and overwrite the cache. Defaults to False.
-        map_range: L∞ half-width of the ego-centric range box in metres, matching base_dataset.py's map_range.
-            Only used when ego_centered is True. Defaults to 100.0.
-        reduction: Dimensionality reduction for the scatter plot. ``"pca"`` (default) or ``"tsne"``.
+        config: Hydra config.
+            Expected keys: input_data_path, output_data_path, cache_path, n_clusters, n_examples, sample_percentage,
+            num_scenarios, num_workers, ego_centered, k_polylines, seed, overwrite, map_range, reduction.
 
     Raises:
         ValueError: If no valid scenario descriptors could be computed.
     """
-    rng = np.random.default_rng(seed)
+    input_data_path = Path(config.input_data_path)
+    cache_path = Path(config.cache_path)
+    cache_path.mkdir(parents=True, exist_ok=True)
+
+    rng = np.random.default_rng(config.seed)
+    output_path = Path(config.output_data_path)
     output_path.mkdir(parents=True, exist_ok=True)
-    cache_path = output_path / "descriptors_cache.pkl"
+    descriptor_filepath = Path(cache_path) / "descriptors_cache.pkl"
 
     all_filepaths: list[Path] = [fp for fp in input_data_path.rglob("*.pkl") if "infos" not in fp.stem]
     print(f"Found {len(all_filepaths)} scenario files.")
 
-    num_samples = num_scenarios if num_scenarios is not None else max(1, round(len(all_filepaths) * sample_percentage))
+    num_samples = (
+        config.num_scenarios
+        if config.num_scenarios is not None
+        else max(1, round(len(all_filepaths) * config.sample_percentage))
+    )
     num_samples = min(num_samples, len(all_filepaths))
     print(f"Using {num_samples} scenarios ({num_samples / len(all_filepaths):.1%}) to fit the model.")
 
@@ -791,19 +778,19 @@ def create_environments(  # noqa: PLR0913, PLR0915
     print(f"\n[Phase 1] Computing descriptors for {len(sample_filepaths)} sample scenarios...")
     sample_ids, sample_splits, sample_descriptors = _compute_descriptors_with_cache(
         sample_filepaths,
-        cache_path,
-        ego_centered,
-        k_polylines,
-        num_workers,
+        descriptor_filepath,
+        config.ego_centered,
+        config.k_polylines,
+        config.num_workers,
         root_path=input_data_path,
-        overwrite=overwrite,
-        map_range=map_range,
+        overwrite=config.overwrite,
+        map_range=config.map_range,
     )
 
-    print(f"Fitting StandardScaler and KMeans({n_clusters}) on sample...")
+    print(f"Fitting StandardScaler and KMeans({config.n_clusters}) on sample...")
     scaler = StandardScaler()
     sample_scaled = scaler.fit_transform(sample_descriptors)
-    kmeans = KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto")
+    kmeans = KMeans(n_clusters=config.n_clusters, random_state=config.seed, n_init="auto")
     sample_labels = kmeans.fit_predict(sample_scaled)
 
     all_ids = list(sample_ids)
@@ -815,13 +802,13 @@ def create_environments(  # noqa: PLR0913, PLR0915
         print(f"\n[Phase 2] Computing descriptors for {len(remaining_filepaths)} remaining scenarios...")
         rem_ids, rem_splits, rem_descriptors = _compute_descriptors_with_cache(
             remaining_filepaths,
-            cache_path,
-            ego_centered,
-            k_polylines,
-            num_workers,
+            descriptor_filepath,
+            config.ego_centered,
+            config.k_polylines,
+            config.num_workers,
             root_path=input_data_path,
-            overwrite=overwrite,
-            map_range=map_range,
+            overwrite=config.overwrite,
+            map_range=config.map_range,
         )
         rem_scaled = scaler.transform(rem_descriptors)
         rem_labels = kmeans.predict(rem_scaled)
@@ -843,15 +830,15 @@ def create_environments(  # noqa: PLR0913, PLR0915
     output_df = benchmark_df[["scenario_id", "cluster", "silhouette_score", "input_set", "output_set"]].rename(
         columns={"cluster": "cluster_label"}
     )
-    benchmark_csv_path = output_path / "environment_benchmark.csv"
+    benchmark_csv_path = cache_path / "environment_benchmark.csv"
     output_df.to_csv(benchmark_csv_path, index=False)
     print(f"\nSaved benchmark split assignments to {benchmark_csv_path}")
 
-    kmeans_path = output_path / "kmeans_model.pkl"
+    kmeans_path = cache_path / "kmeans_model.pkl"
     with kmeans_path.open("wb") as f:
         pickle.dump(kmeans, f)
 
-    scaler_path = output_path / "scaler.pkl"
+    scaler_path = cache_path / "scaler.pkl"
     with scaler_path.open("wb") as f:
         pickle.dump(scaler, f)
     print(f"Saved KMeans model to {kmeans_path}")
@@ -878,12 +865,12 @@ def create_environments(  # noqa: PLR0913, PLR0915
         sample_cluster_df,
         np.stack(sample_scaled),  # pyright: ignore[reportArgumentType, reportCallIssue]
         input_data_path,
-        output_path,
-        n_examples,
-        seed,
+        cache_path,
+        config.n_examples,
+        config.seed,
         test_clusters=test_cluster_ids,
-        ego_centered=ego_centered,
-        k_polylines=k_polylines,
-        map_range=map_range,
-        reduction=reduction,
+        ego_centered=config.ego_centered,
+        k_polylines=config.k_polylines,
+        map_range=config.map_range,
+        reduction=config.reduction,
     )

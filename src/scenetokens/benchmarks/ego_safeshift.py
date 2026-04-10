@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from numpy.random import Generator, default_rng
+from omegaconf import DictConfig
 from tqdm import tqdm
 
 from scenetokens.benchmarks.common import (
@@ -30,16 +31,7 @@ from scenetokens.benchmarks.common import (
 )
 
 
-def create_ego_safeshift(  # noqa: PLR0913
-    causal_data_path: Path,
-    output_data_path: Path,
-    scenario_score_mapping_filepath: Path,
-    score_type: str = "gt_critical_continuous_safeshift",
-    cutoff_percentile: float = 80.0,
-    validation_percentage: float = 10.0,
-    num_workers: int = 8,
-    seed: int = 42,
-) -> None:
+def create_ego_safeshift_benchmark(config: DictConfig) -> None:
     """Creates benchmark scenarios for the Ego-SafeShift benchmark.
 
     Splits the dataset by safety score percentile: scenarios below cutoff_percentile go into the training/validation
@@ -47,31 +39,29 @@ def create_ego_safeshift(  # noqa: PLR0913
     appropriate split subdirectory.
 
     Args:
-        causal_data_path: Path to the input dataset containing .pkl scenario files.
-        output_data_path: Root output directory where split subdirs are created.
-        scenario_score_mapping_filepath: Path to the CSV file with columns 'scenario_ids' and score_type.
-        score_type: Column in the CSV to use for filtering. Defaults to 'gt_critical_continuous_safeshift'.
-        cutoff_percentile: Percentile threshold separating train/val from test. Defaults to 80.0.
-        validation_percentage: Percentage of the train/val pool to hold out for validation. Defaults to 10.0.
-        num_workers: Number of parallel worker processes. Defaults to 8.
-        seed: Random seed for the train/val shuffle. Defaults to 42.
+        config: Hydra config.
+            Expected keys: input_data_path, output_data_path, scenario_score_mapping_filepath, score_type,
+            cutoff_percentile, validation_percentage, num_workers, seed.
     """
-    random_generator: Generator = default_rng(seed)
+    output_data_path = Path(config.output_data_path)
+    random_generator: Generator = default_rng(config.seed)
 
-    filepaths = collect_scenario_filepaths(causal_data_path)
+    filepaths = collect_scenario_filepaths(Path(config.input_data_path))
     input_scenario_mapping = {fp.name: fp for fp in filepaths}
 
     print("Processing Ego-SafeShift benchmark")
     create_split_dirs(output_data_path)
 
-    scenario_scores_df = pd.read_csv(scenario_score_mapping_filepath)
-    cutoff_score = np.percentile(scenario_scores_df[score_type], cutoff_percentile)
+    scenario_scores_df = pd.read_csv(Path(config.scenario_score_mapping_filepath))
+    cutoff_score = np.percentile(scenario_scores_df[config.score_type], config.cutoff_percentile)
 
     output_scenario_mapping: dict[str, Path] = {}
 
-    train_val_scenarios = scenario_scores_df[scenario_scores_df[score_type] < cutoff_score]["scenario_ids"].tolist()
+    train_val_scenarios = scenario_scores_df[scenario_scores_df[config.score_type] < cutoff_score][
+        "scenario_ids"
+    ].tolist()
     random_generator.shuffle(train_val_scenarios)
-    num_validation_scenarios = int(len(train_val_scenarios) * (validation_percentage / 100.0))
+    num_validation_scenarios = int(len(train_val_scenarios) * (config.validation_percentage / 100.0))
 
     validation_scenarios = train_val_scenarios[:num_validation_scenarios]
     output_scenario_mapping.update(get_scenario_mapping(validation_scenarios, output_data_path, "validation"))
@@ -79,10 +69,12 @@ def create_ego_safeshift(  # noqa: PLR0913
     training_scenarios = train_val_scenarios[num_validation_scenarios:]
     output_scenario_mapping.update(get_scenario_mapping(training_scenarios, output_data_path, "training"))
 
-    testing_scenarios = scenario_scores_df[scenario_scores_df[score_type] >= cutoff_score]["scenario_ids"].tolist()
+    testing_scenarios = scenario_scores_df[scenario_scores_df[config.score_type] >= cutoff_score][
+        "scenario_ids"
+    ].tolist()
     output_scenario_mapping.update(get_scenario_mapping(testing_scenarios, output_data_path, "testing"))
 
-    with multiprocessing.Pool(num_workers) as pool:
+    with multiprocessing.Pool(config.num_workers) as pool:
         list(
             tqdm(
                 pool.imap_unordered(

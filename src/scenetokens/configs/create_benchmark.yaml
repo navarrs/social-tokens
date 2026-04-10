@@ -3,9 +3,6 @@ defaults:
   - benchmark: causal_agents  # override via benchmark=ego_safeshift or benchmark=environments
   - _self_
 
-# Name of the benchmark to run. Must match the selected benchmark config group.
-benchmark_name: causal_agents
-
 # General parameters shared across all benchmarks.
 seed: 42
 num_workers: 8

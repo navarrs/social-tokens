@@ -37,7 +37,7 @@ sample_selection_files: [
   "./meta/sample_selection_results/baselines.csv",
   "./meta/sample_selection_results/random.csv",
   "./meta/sample_selection_results/dentp.csv",
-  # "./meta/sample_selection_results/kmeans.csv",
+  "./meta/sample_selection_results/kmeans.csv",
   # "./meta/sample_selection_results/st.csv",
   # "./meta/sample_selection_results/safest.csv",
 ]
@@ -51,6 +51,8 @@ sample_selection_strategies_to_compare: [
   # 'simple_kmeans_cosine_drop',
   # 'gumbel_kmeans_cosine_drop',
   'den_tp',
+  # 'vocab_cluster_jaccard_drop',
+  'vocab_cluster_hamming_drop',
   # 'token_random_drop',
   # 'simple_token_jaccard_drop',
   # 'gumbel_token_jaccard_drop',

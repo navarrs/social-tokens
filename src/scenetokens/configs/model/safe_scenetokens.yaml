@@ -65,10 +65,10 @@ config:
       reconstruction_weight: 1.0
       trajpred_weight: 1.0
       tokenization_weight: 1.0
-      individual_classification_weight: 1.0 # Note: weight set to 0.3 for causal benchmark and to 0.5 for ego-safeshift
+      individual_classification_weight: 0.0 # Note: weight set to 0.3 for causal benchmark and to 0.5 for ego-safeshift
       interaction_classification_weight: 1.0 # Note: weight set to 0.3 for causal benchmark and to 0.5 for ego-safeshift
       classification_weight: 1.0
-      use_focal_loss: true
+      use_focal_loss: false
       gamma: 1.0
       alpha: null
 

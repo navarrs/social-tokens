@@ -23,6 +23,7 @@ from typing import Any
 
 import numpy as np
 from numpy.random import Generator, default_rng
+from omegaconf import DictConfig
 from tqdm import tqdm
 
 from scenetokens.benchmarks.common import collect_scenario_filepaths, create_split_dirs
@@ -261,43 +262,32 @@ def _create_scenario(  # noqa: PLR0913
             raise ValueError(error_message)
 
 
-def create_causal_agents(  # noqa: PLR0913
-    causal_data_path: Path,
-    output_data_path: Path,
-    causal_labels_path: Path,
-    strategy: str,
-    num_workers: int = 8,
-    seed: int = 42,
-) -> None:
+def create_causal_agents_benchmark(config: DictConfig) -> None:
     """Creates benchmark scenarios for Waymo dataset following the CausalAgents strategy.
 
-    Reads scenario pkl files from causal_data_path, applies the chosen masking strategy, and writes modified scenarios
-    to output_data_path/<strategy>/{training,validation,testing}/.
+    Reads scenario pkl files from config.input_data_path, applies the chosen masking strategy, and writes modified
+    scenarios to config.output_data_path/<strategy>/{training,validation,testing}/.
 
     Args:
-        causal_data_path: Path to the input causal dataset (contains split subdirectories with .pkl files).
-        output_data_path: Root output directory. The strategy name is appended as a subdirectory.
-        causal_labels_path: Path to the directory containing per-scenario JSON causal labels.
-        strategy: Masking strategy. One of: remove_causal, remove_noncausal, remove_noncausalequal, remove_static.
-        num_workers: Number of parallel worker processes. Defaults to 8.
-        seed: Random seed for non-deterministic strategies (e.g. remove_noncausalequal). Defaults to 42.
+        config: Hydra config.
+            Expected keys: input_data_path, output_data_path, causal_labels_path, strategy, num_workers, seed.
     """
-    filepaths = collect_scenario_filepaths(causal_data_path)
+    filepaths = collect_scenario_filepaths(Path(config.input_data_path))
     scenario_mapping = {fp.stem: fp.parent.parent.stem for fp in filepaths}
 
-    proc_data_path = output_data_path / strategy
-    print(f"Processing Causal Agents benchmark: {strategy}")
+    proc_data_path = Path(config.output_data_path) / config.strategy
+    print(f"Processing Causal Agents benchmark: {config.strategy}")
     create_split_dirs(proc_data_path)
 
-    random_generator: Generator = default_rng(seed)
-    with multiprocessing.Pool(num_workers) as pool:
+    random_generator: Generator = default_rng(config.seed)
+    with multiprocessing.Pool(config.num_workers) as pool:
         pool.starmap(
             partial(
                 _create_scenario,
                 output_path=proc_data_path,
-                causal_labels_path=causal_labels_path,
+                causal_labels_path=Path(config.causal_labels_path),
                 scenario_mapping=scenario_mapping,
-                strategy=strategy,
+                strategy=config.strategy,
                 random_generator=random_generator,
             ),
             [(file,) for file in tqdm(filepaths, total=len(filepaths))],

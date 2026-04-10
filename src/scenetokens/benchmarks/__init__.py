@@ -1,14 +1,14 @@
-from .causal_agents import create_causal_agents
+from .causal_agents import create_causal_agents_benchmark
 from .common import Benchmark
-from .ego_safeshift import create_ego_safeshift
-from .environments import create_environments
-from .safeshift import create_safeshift
+from .ego_safeshift import create_ego_safeshift_benchmark
+from .environments import create_environments_benchmark
+from .safeshift import create_safeshift_benchmark
 
 
 __all__ = [
     "Benchmark",
-    "create_causal_agents",
-    "create_ego_safeshift",
-    "create_environments",
-    "create_safeshift",
+    "create_causal_agents_benchmark",
+    "create_ego_safeshift_benchmark",
+    "create_environments_benchmark",
+    "create_safeshift_benchmark",
 ]

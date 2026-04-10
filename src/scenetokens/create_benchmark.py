@@ -19,8 +19,6 @@ Example usage:
 See `configs/create_benchmark.yaml` and the per-benchmark configs under `configs/benchmark/` for all options.
 """
 
-from pathlib import Path
-
 import hydra
 import pyrootutils
 from omegaconf import DictConfig
@@ -43,51 +41,13 @@ def main(cfg: DictConfig) -> None:
     benchmark = Benchmark(cfg.benchmark_name)
     match benchmark:
         case Benchmark.CAUSAL_AGENTS:
-            benchmarks.create_causal_agents(
-                causal_data_path=Path(cfg.input_data_path),
-                output_data_path=Path(cfg.output_data_path),
-                causal_labels_path=Path(cfg.causal_labels_path),
-                strategy=cfg.strategy,
-                num_workers=cfg.num_workers,
-                seed=cfg.seed,
-            )
+            benchmarks.create_causal_agents_benchmark(cfg)
         case Benchmark.EGO_SAFESHIFT:
-            benchmarks.create_ego_safeshift(
-                causal_data_path=Path(cfg.input_data_path),
-                output_data_path=Path(cfg.output_data_path),
-                scenario_score_mapping_filepath=Path(cfg.scenario_score_mapping_filepath),
-                score_type=cfg.score_type,
-                cutoff_percentile=cfg.cutoff_percentile,
-                validation_percentage=cfg.validation_percentage,
-                num_workers=cfg.num_workers,
-                seed=cfg.seed,
-            )
+            benchmarks.create_ego_safeshift_benchmark(cfg)
         case Benchmark.ENVIRONMENTS:
-            benchmarks.create_environments(
-                input_data_path=Path(cfg.input_data_path),
-                output_path=Path(cfg.output_data_path),
-                n_clusters=cfg.n_clusters,
-                n_examples=cfg.n_examples,
-                sample_percentage=cfg.sample_percentage,
-                num_scenarios=cfg.num_scenarios,
-                num_workers=cfg.num_workers,
-                ego_centered=cfg.ego_centered,
-                k_polylines=cfg.k_polylines,
-                seed=cfg.seed,
-                overwrite=cfg.overwrite,
-                map_range=cfg.map_range,
-                reduction=cfg.reduction,
-            )
+            benchmarks.create_environments_benchmark(cfg)
         case Benchmark.SAFESHIFT:
-            benchmarks.create_safeshift(
-                input_data_path=Path(cfg.input_data_path),
-                output_data_path=Path(cfg.output_data_path),
-                scores_path=Path(cfg.scores_path),
-                prefix=cfg.prefix,
-                num_workers=cfg.num_workers,
-            )
-        case _:
-            _LOGGER.error("Unsupported benchmark: %s", cfg.benchmark_name)
+            benchmarks.create_safeshift_benchmark(cfg)
 
 
 if __name__ == "__main__":

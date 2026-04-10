@@ -60,6 +60,8 @@ STRATEGY_NAME_MAP = {
     "simple_kmeans_cosine_drop": "KMeans-SC",
     "gumbel_kmeans_cosine_drop": "KMeans-GC",
     "den_tp": "DenTP",
+    "vocab_cluster_jaccard_drop": "DenTP-KJ",
+    "vocab_cluster_hamming_drop": "DenTP-KH",
 }
 
 

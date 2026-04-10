@@ -27,4 +27,7 @@ overwrite: false
 map_range: 100.0
 
 # Dimensionality reduction for the scatter plot: 'pca' or 'tsne'.
-reduction: pca
+reduction: tsne
+
+# Cache path
+cache_path: /data/driving/waymo/environment

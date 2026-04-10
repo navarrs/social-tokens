@@ -23,6 +23,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from omegaconf import DictConfig
 from tqdm import tqdm
 
 from scenetokens import utils
@@ -85,25 +86,20 @@ def _verify_splits(output_path: Path, scores_path: Path, prefix: str) -> None:
     plt.savefig("scores_pdf.png")
 
 
-def create_safeshift(
-    input_data_path: Path,
-    output_data_path: Path,
-    scores_path: Path,
-    prefix: str = "score_asym_combined_80_",
-    num_workers: int = 8,
-) -> None:
+def create_safeshift_benchmark(config: DictConfig) -> None:
     """Creates benchmark splits for the SafeShift benchmark.
 
     Reads per-split metadata from SafeShift pickle files, then copies the corresponding scenario files into
     training/validation/testing subdirectories under output_data_path.
 
     Args:
-        input_data_path: Directory containing all source scenario .pkl files (searched recursively).
-        output_data_path: Root output directory where split subdirs are created.
-        scores_path: Path to the SafeShift score metadata directory (contains *_infos.pkl files).
-        prefix: Filename prefix used to locate the metadata files. Defaults to 'score_asym_combined_80_'.
-        num_workers: Number of parallel worker processes. Defaults to 8.
+        config: Hydra config.
+            Expected keys: input_data_path, output_data_path, scores_path, prefix, num_workers.
     """
+    input_data_path = Path(config.input_data_path)
+    output_data_path = Path(config.output_data_path)
+    scores_path = Path(config.scores_path)
+
     _LOGGER.info("Creating %s benchmark", Benchmark.SAFESHIFT.value)
     create_split_dirs(output_data_path)
 
@@ -113,7 +109,7 @@ def create_safeshift(
     tasks: list[tuple[str, Path, Path]] = []
     for split in ["training", "validation", "testing"]:
         split_infos = "test" if split == "testing" else "val" if split == "validation" else "training"
-        metadata_filepath = scores_path / f"{prefix}processed_scenarios_{split_infos}_infos.pkl"
+        metadata_filepath = scores_path / f"{config.prefix}processed_scenarios_{split_infos}_infos.pkl"
 
         if not metadata_filepath.exists():
             error_message = f"Scenario metadata file not found: {metadata_filepath}"
@@ -136,8 +132,8 @@ def create_safeshift(
         if num_not_found:
             _LOGGER.warning("Split '%s': %d scenarios not found in input directory", split, num_not_found)
 
-    _LOGGER.info("Starting parallel copy of %d scenarios with %d workers", len(tasks), num_workers)
-    with multiprocessing.Pool(num_workers) as pool:
+    _LOGGER.info("Starting parallel copy of %d scenarios with %d workers", len(tasks), config.num_workers)
+    with multiprocessing.Pool(config.num_workers) as pool:
         list(
             tqdm(
                 pool.starmap(_copy_scenario, tasks),
@@ -146,5 +142,5 @@ def create_safeshift(
             )
         )
 
-    _verify_splits(output_data_path, scores_path, prefix)
+    _verify_splits(output_data_path, scores_path, config.prefix)
     _LOGGER.info("SafeShift benchmark creation complete")
