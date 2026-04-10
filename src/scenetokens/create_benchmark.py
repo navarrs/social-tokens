@@ -44,10 +44,10 @@ def main(cfg: DictConfig) -> None:
             benchmarks.create_causal_agents_benchmark(cfg)
         case Benchmark.EGO_SAFESHIFT:
             benchmarks.create_ego_safeshift_benchmark(cfg)
-        case Benchmark.ENVIRONMENTS:
-            benchmarks.create_environments_benchmark(cfg)
         case Benchmark.SAFESHIFT:
             benchmarks.create_safeshift_benchmark(cfg)
+        case Benchmark.ENVIRONMENTS:
+            benchmarks.create_environments_benchmark(cfg)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,19 @@ from matplotlib.lines import Line2D
 from numpy.typing import NDArray
 
 
+# Color scheme for each map element type in graph visualizations.
+_NODE_COLORS: dict[str, str] = {
+    "lane": "#4A90D9",
+    "road_line": "#F5A623",
+    "road_edge": "#7B68EE",
+    "crosswalk": "#50C878",
+    "speed_bump": "#FF6B6B",
+    "stop_sign": "#FF4500",
+}
+_DEFAULT_NODE_COLOR = "#AAAAAA"
+_MAP_ELEMENT_TYPES = ("lane", "road_line", "road_edge", "crosswalk", "speed_bump", "stop_sign")
+
+
 def _rotate_points_along_z(points: NDArray[np.float64], angle: float) -> NDArray[np.float64]:
     """Rotates the (x, y) columns of an array by angle radians around the Z axis.
 
@@ -33,25 +46,46 @@ def _rotate_points_along_z(points: NDArray[np.float64], angle: float) -> NDArray
     return result
 
 
-# Color scheme for each map element type in graph visualizations.
-_NODE_COLORS: dict[str, str] = {
-    "lane": "#4A90D9",
-    "road_line": "#F5A623",
-    "road_edge": "#7B68EE",
-    "crosswalk": "#50C878",
-    "speed_bump": "#FF6B6B",
-    "stop_sign": "#FF4500",
-}
-_DEFAULT_NODE_COLOR = "#AAAAAA"
-_MAP_ELEMENT_TYPES = ("lane", "road_line", "road_edge", "crosswalk", "speed_bump", "stop_sign")
-
-
-def filter_map_elements_by_proximity(  # noqa: PLR0913
-    map_infos: dict[str, Any],
+def transform_map_elements(
     all_polylines: NDArray[np.float64],
     ref_xy: NDArray[np.float64],
-    k: int,
     ref_heading: float = 0.0,
+) -> NDArray[np.float64]:
+    """Returns a filtered copy of map_infos keeping map elements that are within range of the reference point.
+
+    Mirrors the selection logic in base_dataset.py's ``get_centered_map_data``.
+
+    1. All polyline points are transformed to the reference frame (translate by -ref_xy, rotate by -ref_heading).
+    2. A map element passes the **range filter** if any of its points fall within the L∞ box
+       ``|x| < map_range AND |y| < map_range``.
+    3. Among passing elements, the top-K are kept by ascending **average L2 distance** of their points from the
+       reference-frame origin.
+
+    Node positions stored in the graph remain in world coordinates — only the filtering step uses the reference frame.
+
+    Args:
+        map_infos: Map information dictionary from a scenario pickle file.
+        all_polylines: Array of shape (N, >=2) with all polyline points in world coordinates.
+        ref_xy: Reference position (x, y).
+        ref_heading: Reference heading in radians. Used to rotate polyline points to the reference frame before the
+            range check, matching base_dataset.py's rotation convention. Defaults to 0.0.
+
+    Returns:
+        Shallow copy of map_infos with each element list filtered to the K nearest in-range elements.
+    """
+    if all_polylines.shape[0] == 0:
+        return all_polylines
+
+    # Transform all polyline points to the reference frame
+    pts_ref: NDArray[np.float64] = all_polylines.copy()
+    pts_ref[..., :2] -= ref_xy[:2]
+    return _rotate_points_along_z(pts_ref, -ref_heading)
+
+
+def filter_map_elements_by_proximity(
+    map_infos: dict[str, Any],
+    polylines: NDArray[np.float64],
+    num_map_elements: int = 100,
     map_range: float = 100.0,
 ) -> dict[str, Any]:
     """Returns a filtered copy of map_infos keeping map elements that are within range of the reference point.
@@ -68,31 +102,24 @@ def filter_map_elements_by_proximity(  # noqa: PLR0913
 
     Args:
         map_infos: Map information dictionary from a scenario pickle file.
-        all_polylines: Array of shape (N, >=2) with all polyline points in world coordinates.
-        ref_xy: Reference position (x, y).
-        k: Maximum number of map elements to retain.
-        ref_heading: Reference heading in radians. Used to rotate polyline points to the reference frame before the
-            range check, matching base_dataset.py's rotation convention. Defaults to 0.0.
-        map_range: L∞ half-width of the reference-frame range box in metres. Elements with at least one point inside
-            the box are candidates. Defaults to 100.0.
+        polylines: Array of shape (N, >=2) with all polyline points in world coordinates.
+        num_map_elements: Maximum number of map elements to retain.
+        map_range: L∞ half-width of the reference-frame range box in metres. Elements with at least one point inside the
+            box are candidates. Defaults to 100.0.
 
     Returns:
         Shallow copy of map_infos with each element list filtered to the K nearest in-range elements.
     """
-    if all_polylines.shape[0] == 0:
+    if polylines.shape[0] == 0:
         return map_infos
-
-    pts_ref: NDArray[np.float64] = all_polylines.copy()
-    pts_ref[..., :2] -= ref_xy[:2]
-    pts_ref = _rotate_points_along_z(pts_ref, -ref_heading)
-
-    candidates: list[tuple[float, str, dict]] = []  # pyright: ignore[reportMissingTypeArgument]
+    # Get candidate map elements with their average distance to the reference point
+    candidates: list[tuple[float, str, dict[str, Any]]] = []
     for etype in _MAP_ELEMENT_TYPES:
         for element in map_infos.get(etype, []):
             start, end = element.get("polyline_index", (0, 0))
             if end <= start:
                 continue
-            pts = pts_ref[start:end, :2]
+            pts = polylines[start:end, :2]
 
             in_range = (np.abs(pts[:, 0]) < map_range) & (np.abs(pts[:, 1]) < map_range)
             if not in_range.any():
@@ -101,9 +128,10 @@ def filter_map_elements_by_proximity(  # noqa: PLR0913
             avg_dist = float(np.linalg.norm(pts, axis=-1).mean())
             candidates.append((avg_dist, etype, element))
 
+    # Sort the candidates by ascending average distance and keep the top-K, grouping them back into their element types
     candidates.sort(key=operator.itemgetter(0))
-    filtered: dict[str, list] = {etype: [] for etype in _MAP_ELEMENT_TYPES}  # pyright: ignore[reportMissingTypeArgument]
-    for _, etype, element in candidates[:k]:
+    filtered: dict[str, list] = {etype: [] for etype in _MAP_ELEMENT_TYPES}
+    for _, etype, element in candidates[:num_map_elements]:
         filtered[etype].append(element)
 
     return {**map_infos, **filtered}
@@ -112,21 +140,21 @@ def filter_map_elements_by_proximity(  # noqa: PLR0913
 def map_infos_to_graph(
     map_infos: dict[str, Any],
     ref_xy: NDArray[np.float64] | None = None,
-    k_polylines: int | None = None,
     ref_heading: float = 0.0,
+    num_map_elements: int | None = None,
     map_range: float = 100.0,
 ) -> nx.DiGraph:
     """Converts scenario map information into a directed NetworkX graph.
 
-    Nodes represent lanes, road lines, road edges, crosswalks, speed bumps, and stop signs. Directed edges connect
-    lanes via their entry/exit lane relationships. Each node stores the centroid (x, y, z) of its polyline as
-    position attributes when available.
+    Nodes represent lanes, road lines, road edges, crosswalks, speed bumps, and stop signs. Directed edges connect lanes
+    via their entry/exit lane relationships. Each node stores the centroid (x, y, z) of its polyline as position
+    attributes when available.
 
     Args:
         map_infos: Map information dictionary from a scenario pickle file.
-        ref_xy: If provided together with k_polylines, triggers proximity filtering via
+        ref_xy: If provided together with num_map_elements, triggers proximity filtering via
             `filter_map_elements_by_proximity`.
-        k_polylines: Maximum number of map elements to retain when ref_xy is set.
+        num_map_elements: Maximum number of map elements to retain when ref_xy is set.
         ref_heading: Reference heading in radians, used for the range check. Defaults to 0.0.
         map_range: L∞ half-width of the reference-frame range box in metres. Defaults to 100.0.
 
@@ -136,10 +164,9 @@ def map_infos_to_graph(
     graph = nx.DiGraph()
     all_polylines: NDArray[np.float64] = np.asarray(map_infos.get("all_polylines", np.empty((0, 7))))
 
-    if ref_xy is not None and k_polylines is not None:
-        map_infos = filter_map_elements_by_proximity(
-            map_infos, all_polylines, ref_xy, k_polylines, ref_heading=ref_heading, map_range=map_range
-        )
+    if ref_xy is not None and num_map_elements is not None:
+        polylines_tf = transform_map_elements(all_polylines, ref_xy, ref_heading)
+        map_infos = filter_map_elements_by_proximity(map_infos, polylines_tf, num_map_elements, map_range=map_range)
 
     def _node_pos(element: dict[str, Any]) -> dict[str, float]:
         start, end = element.get("polyline_index", (0, 0))
@@ -226,7 +253,7 @@ def build_positioned_graph(
     """
     graph = simplify_graph(
         map_infos_to_graph(
-            map_infos, ref_xy=ref_xy, k_polylines=k_polylines, ref_heading=ref_heading, map_range=map_range
+            map_infos, ref_xy=ref_xy, ref_heading=ref_heading, num_map_elements=k_polylines, map_range=map_range
         )
     )
 
