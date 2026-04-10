@@ -11,7 +11,7 @@ where `model_name`: either of `wayformer`, `scenetransformer`, `scenetokens_stud
 Additional command line arguments:
 * `logger`: either of `mlflow`, `neptune`, `tensorboard`, `wandb`, `csv` or `many_loggers` (which will use both `mlflow` and `csv`). Specific parameters might need to be set for some loggers. **Default** value is `many_loggers`.
 * `scenario`: either of `waymo` or `nuscenes`. This will simply set the scenario sequence partition. **Default** value is `waymo`, which will partition the scenario into 1.1 seconds of history and 8 seconds for prediction.
-* `paths`: either of `waymo ` (Experiment 1), `waymo_causal_labeled` (Experiment 2), `waymo_causal_unlabeled` (Experiment 3), `safeshift` (Experiment 4), or `safeshift_causal` (Experiment 5). Each specifies the paths to the train/val/test data. **Default** value is `waymo`. See this [doc](./EXPERIMENTS.md) for more details on each experiment.
+* `paths`: one of `waymo`, `causal_agents`, `causal_agents_all`, `safeshift`, `safeshift_causal`, or `ego_safeshift_causal`. Each specifies the paths to the train/val/test data. **Default** value is `waymo`. See [BENCHMARKS.md](./BENCHMARKS.md) for details on each benchmark and how to create the corresponding datasets.
 * `trainer`: either of `cpu`, `ddp`, `gpu` or `mps`. **Default** value is `gpu'.
 * `dataset`: This specifies the input data representation. Currently, the only supported value is `waymo`. See this [doc](./DATA_PREPARATION.md) for more details on how to prepare the data.
 
@@ -62,3 +62,14 @@ To run a sweep of experiments use `-m` and specify in the command line the param
 uv run -m scenetokens.train -m model=[model_name] model.config.num_classes=10,20,50,100
 ```
 This will launch 4 sequential experiments where the value `num_classess` will be set to 10, 20, 50 and 100, respectively. The experiment logs will be saved to `out/logs/multiruns` instead of `out/logs/runs/`.
+
+# Model types
+
+- *SceneTransformer* (`model=scenetransformer`): follows the architecture from [AmeliaTF](https://github.com/AmeliaCMU/AmeliaTF/).
+- *Wayformer* (`model=wayformer`): follows the architecture from [UniTraj](https://github.com/vita-epfl/UniTraj).
+- *ScenetokensStudent* (`model=scenetokens_student`): builds from Wayformer and adds a scenario tokenization layer.
+- *ScenetokensTeacher* (`model=scenetokens_teacher`): builds from Wayformer and adds a scenario tokenization layer with causal awareness.
+- *ScenetokensTeacherUnmasked* (`model=scenetokens_teacher_unmasked`): ablation of *ScenetokensTeacher* without masking.
+- *AutoBot* (`model=autobot`): follows the architecture from [Girgis et al., ICLR 2022](https://arxiv.org/abs/2104.00563), adapted from [UniTraj](https://github.com/vita-epfl/UniTraj). Implements multi-modal trajectory prediction with factorized temporal and social attention.
+- *MTR* (`model=mtr`): follows the architecture from [Shi et al., NeurIPS 2022](https://arxiv.org/abs/2209.13508). Implements multi-modal trajectory prediction with a PointNet polyline encoder, a global transformer, and intention-point-conditioned motion queries. On the first training run, intention points are automatically computed from the training data and cached to disk.
+- *SafeSceneTokens* (`model=safe_scenetokens`): builds from Wayformer and adds a scenario tokenization layer with safety-relevance awareness. Requires additional labels produced using the [ScenarioCharacterization](https://github.com/navarrs/ScenarioCharacterization) tool. Pre-generated meta files are available [here](https://drive.google.com/drive/folders/1GlA768lIIFl3Zitxh00D9zH1Xmvj9mbQ?usp=drive_link). To produce training labels from these files, set `autolabel_agents=true` in `configs/train.yaml` (also set `overwrite_cache=true` if training data has already been post-processed).

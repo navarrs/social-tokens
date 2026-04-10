@@ -1,8 +1,8 @@
 r"""Benchmark creation for the Environments benchmark.
 
-Clusters scenarios by road topology using NetLSD graph descriptors and KMeans, then assigns
-train/validation/testing splits based on cluster hardness (silhouette score). Results are written
-as a CSV file alongside model artifacts and cluster visualizations.
+Clusters scenarios by road topology using NetLSD graph descriptors and KMeans, then assigns train/validation/testing
+splits based on cluster hardness (silhouette score). Results are written as a CSV file alongside model artifacts and
+cluster visualizations.
 
 Example usage:
 

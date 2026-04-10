@@ -1,7 +1,7 @@
 r"""Benchmark creation for the Ego-SafeShift benchmark.
 
-Filters scenarios by safety score percentile and copies them into training/validation/testing splits.
-Scenarios below the cutoff percentile form the train/val pool; scenarios above form the test set.
+Filters scenarios by safety score percentile and copies them into training/validation/testing splits. Scenarios below
+the cutoff percentile form the train/val pool; scenarios above form the test set.
 
 Example usage:
 
@@ -42,9 +42,9 @@ def create_ego_safeshift(  # noqa: PLR0913
 ) -> None:
     """Creates benchmark scenarios for the Ego-SafeShift benchmark.
 
-    Splits the dataset by safety score percentile: scenarios below cutoff_percentile go into the
-    training/validation pool (split 90/10 by default); scenarios above go into the test set.
-    Files are copied from causal_data_path into the appropriate split subdirectory.
+    Splits the dataset by safety score percentile: scenarios below cutoff_percentile go into the training/validation
+    pool (split 90/10 by default); scenarios above go into the test set. Files are copied from causal_data_path into the
+    appropriate split subdirectory.
 
     Args:
         causal_data_path: Path to the input dataset containing .pkl scenario files.

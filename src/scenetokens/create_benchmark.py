@@ -78,6 +78,14 @@ def main(cfg: DictConfig) -> None:
                 map_range=cfg.map_range,
                 reduction=cfg.reduction,
             )
+        case Benchmark.SAFESHIFT:
+            benchmarks.create_safeshift(
+                input_data_path=Path(cfg.input_data_path),
+                output_data_path=Path(cfg.output_data_path),
+                scores_path=Path(cfg.scores_path),
+                prefix=cfg.prefix,
+                num_workers=cfg.num_workers,
+            )
         case _:
             _LOGGER.error("Unsupported benchmark: %s", cfg.benchmark_name)
 

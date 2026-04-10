@@ -1,7 +1,7 @@
 r"""Benchmark creation for the Causal Agents benchmark.
 
-Creates modified scenario pkl files where specific object categories (causal, non-causal, static) are
-masked out, producing a resplit dataset under output_data_path/<strategy>/{training,validation,testing}/.
+Creates modified scenario pkl files where specific object categories (causal, non-causal, static) are masked out,
+producing a resplit dataset under output_data_path/<strategy>/{training,validation,testing}/.
 
 Example usage:
 

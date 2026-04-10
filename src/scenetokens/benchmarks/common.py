@@ -4,10 +4,16 @@ import shutil
 from enum import Enum
 from pathlib import Path
 
+from scenetokens import utils
+
+
+_LOGGER = utils.get_pylogger(__name__)
+
 
 class Benchmark(Enum):
     CAUSAL_AGENTS = "causal_agents"
     EGO_SAFESHIFT = "ego_safeshift"
+    SAFESHIFT = "safeshift"
     ENVIRONMENTS = "environments"
 
 
@@ -23,7 +29,7 @@ def create_split_dirs(output_path: Path, splits: list[str] = _DEFAULT_SPLITS) ->
     """
     for split in splits:
         (output_path / split).mkdir(parents=True, exist_ok=True)
-        print(f"Creating benchmark subdir: {output_path / split}")
+        _LOGGER.info("Creating benchmark subdir: %s", output_path / split)
 
 
 def collect_scenario_filepaths(data_path: Path) -> list[Path]:
@@ -69,6 +75,6 @@ def copy_scenario(
         output_scenario_mapping: Maps scenario IDs to destination file paths.
     """
     if scenario_id not in input_scenario_mapping:
-        print(f"Scenario {scenario_id} not found in input mapping.")
+        _LOGGER.warning("Scenario %s not found in input mapping.", scenario_id)
         return
     shutil.copy2(input_scenario_mapping[scenario_id], output_scenario_mapping[scenario_id])
