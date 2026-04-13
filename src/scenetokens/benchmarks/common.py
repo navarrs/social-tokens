@@ -1,5 +1,6 @@
 """Shared helpers used across benchmark creation modules."""
 
+import itertools
 import shutil
 from collections.abc import Iterable
 from enum import Enum
@@ -19,6 +20,19 @@ class Benchmark(Enum):
 
 
 _DEFAULT_SPLITS: tuple[str, ...] = ("training", "validation", "testing")
+
+
+def verify_splits(output_path: Path, splits: Iterable[str] = _DEFAULT_SPLITS) -> None:
+    """Reads scenario files from train/val/test subdirectories of output_path and prints any filename overlap."""
+    split_data: dict[str, set[str]] = {
+        split: {p.name for p in (output_path / split).rglob("*.pkl") if p.is_file()} for split in splits
+    }
+    for set1, set2 in itertools.combinations(splits, 2):
+        intersection = split_data[set1] & split_data[set2]
+        if intersection:
+            _LOGGER.warning("Overlap between %s and %s: %d scenarios", set1, set2, len(intersection))
+        else:
+            _LOGGER.info("No overlap between %s and %s", set1, set2)
 
 
 def create_split_dirs(output_path: Path, splits: Iterable[str] = _DEFAULT_SPLITS) -> None:

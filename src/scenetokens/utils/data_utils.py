@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from scipy.interpolate import interp1d
 from torch.utils.data import Sampler
-
+from numpy.typing import NDArray
 from scenetokens.utils.constants import TrajectoryType
 from scenetokens.utils import pylogger
 import json
@@ -366,18 +366,11 @@ def rotate_points_along_z(points, angle):
 
     return points_rot
 
-
-def find_true_segments(mask):
-    # Find the indices where `True` changes to `False` and vice versa
+def find_true_segments(mask: NDArray[np.bool_]) -> list[list[int]]:
+    """Returns indices of each contiguous run of True values in mask."""
     change_points = np.where(np.diff(mask))[0] + 1
-
-    # Add the start and end indices
     indices = np.concatenate(([0], change_points, [len(mask)]))
-
-    # Extract the segments of continuous `True`
-    segments = [list(range(indices[i], indices[i + 1])) for i in range(len(indices) - 1) if mask[indices[i]]]
-
-    return segments
+    return [list(range(int(indices[i]), int(indices[i + 1]))) for i in range(len(indices) - 1) if mask[indices[i]]]
 
 
 def merge_batch_by_padding_2nd_dim(tensor_list, return_pad_mask=False):

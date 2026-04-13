@@ -668,12 +668,12 @@ class BaseDataset(Dataset, ABC):
         individual_agent_scores_mask, interaction_agent_scores_mask = None, None
         if scenario_scores is not None:
             # Get valid agent scores
-            individual_agent_scores = scenario_scores.individual_scores.agent_scores[valid_past_mask]  # pyright: ignore[reportOptionalSubscript]
+            individual_agent_scores = scenario_scores.individual_scores.agent_scores[valid_past_mask].clip(min=1, max=4)  # pyright: ignore[reportOptionalSubscript]
             individual_agent_scores_valid = scenario_scores.individual_scores.agent_scores_valid[valid_past_mask]  # pyright: ignore[reportOptionalSubscript]
             individual_agent_scores[~individual_agent_scores_valid] = 0
             individual_agent_scores = np.tile(individual_agent_scores[None, :], (num_center_points, 1))
 
-            interaction_agent_scores = scenario_scores.interaction_scores.agent_scores[valid_past_mask]  # pyright: ignore[reportOptionalSubscript]
+            interaction_agent_scores = scenario_scores.interaction_scores.agent_scores[valid_past_mask].clip(min=1, max=4)  # pyright: ignore[reportOptionalSubscript]
             interaction_agent_scores_valid = scenario_scores.interaction_scores.agent_scores_valid[valid_past_mask]  # pyright: ignore[reportOptionalSubscript]
             interaction_agent_scores[~interaction_agent_scores_valid] = 0
             interaction_agent_scores = np.tile(interaction_agent_scores[None, :], (num_center_points, 1))

@@ -10,7 +10,7 @@ config:
   num_classes: 100
   num_queries: 38
   # num_labels: 9 # Safety Cateogories produced by the SafeShift model
-  num_labels: 6 # Safety Cateogories produced by the SafeShift model
+  num_labels: 5 # Safety Cateogories produced by the SafeShift model
   tokenize: true # Set to 'false' to disable tokenization
   predict_trajectories: true # Set to 'false' to disable trajectory prediction
 
@@ -34,7 +34,8 @@ config:
     normalize: false
 
   # Agent tokenizer
-  use_agent_tokenizer: true
+  use_agent_tokenizer: false
+  condition_on_agent_types: false
   agent_tokenizer_tags: agenttokenizer_num-tokens-${model.config.agent_tokenizer.num_tokens}_normalize-${model.config.agent_tokenizer.normalize}_enabled-${model.config.use_agent_tokenizer}
   agent_tokenizer:
     _target_: scenetokens.models.scene.tokenizers.quantized_tokenizer.QuantizedTokenizer
@@ -79,7 +80,7 @@ config:
       # Hand-crafted values
       # interaction_alpha: [0.3, 0.5, 0.5, 0.5, 0.6, 0.8, 0.8, 1.0, 1.0]
       # individual_alpha: [0.3, 0.5, 0.5, 0.5, 0.6, 0.8, 0.8, 1.0, 1.0]
-      interaction_alpha: [0.3, 0.5, 0.5, 0.8, 1.0, 1.0]
-      individual_alpha: [0.3, 0.5, 0.5, 0.8, 1.0, 1.0]
+      interaction_alpha: [0.0, 0.7, 0.5, 1.0, 1.0]
+      individual_alpha: [0.0, 0.7, 0.5, 1.0, 1.0]
       # interaction_alpha: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
       # individual_alpha: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]

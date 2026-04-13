@@ -5,7 +5,7 @@ defaults:
 
 # General parameters shared across all benchmarks.
 seed: 42
-num_workers: 8
+num_workers: 20
 
 # If true, the source scenario file is deleted after being copied to the output directory.
 unlink_source: false

@@ -64,8 +64,11 @@ class SafeSceneTokens(BaseModel):
         if self.predict_trajectories:
             self.motion_decoder = self.config.motion_decoder
 
-        self.individual_safety_classifier = nn.Sequential(nn.Linear(self.config.hidden_size, self.config.num_labels))
-        self.interaction_safety_classifier = nn.Sequential(nn.Linear(self.config.hidden_size, self.config.num_labels))
+        self.condition_on_agent_types = config.get("condition_on_agent_types", False)
+        _num_type_features = 5 if self.condition_on_agent_types else 0
+        _classifier_input_size = self.config.hidden_size + _num_type_features
+        self.individual_safety_classifier = nn.Sequential(nn.Linear(_classifier_input_size, self.config.num_labels))
+        self.interaction_safety_classifier = nn.Sequential(nn.Linear(_classifier_input_size, self.config.num_labels))
 
         self.selu = nn.SELU(inplace=True)
         self.criterion = self.config.criterion
@@ -133,6 +136,12 @@ class SafeSceneTokens(BaseModel):
         causal_tokenization_output = None
         if self.tokenize and self.use_agent_tokenizer:
             causal_tokenization_output = self.agent_tokenizer(agent_context)
+
+        if self.condition_on_agent_types:
+            obj_trajs = inputs["obj_trajs"]  # (B, N, H, Da)
+            agent_types = obj_trajs[:, :, 0, 6:11].float()  # (B, N, 5)
+            # Build type tensor matching embed() agent ordering: ego first, then all agents from obj_trajs
+            agent_context = torch.cat([agent_context, agent_types], dim=-1)  # (B, max_num_agents, E+5)
 
         # Get safety predictions
         # individual_safety_scores: (B, N, 1)
