@@ -1,9 +1,9 @@
 r"""Benchmark creation for the Environments benchmark.
 
-Clusters scenarios by road topology using NetLSD graph descriptors and KMeans, then assigns train/validation/testing
-splits based on cluster hardness (silhouette score or Davies-Bouldin Index). Results are written as a CSV file alongside
-model artifacts and
-cluster visualizations.
+Clusters scenarios by road topology using NetLSD graph descriptors and a configurable clustering algorithm, then assigns
+train/validation/testing splits based on cluster hardness (silhouette score or Davies-Bouldin Index). Supported
+algorithms: ``kmeans``, ``hdbscan``, ``agglomerative``, ``ward``, ``spectral``. Results are written under a subfolder
+named after the chosen algorithm inside ``cache_path``.
 
 Example usage:
 
@@ -30,7 +30,7 @@ from matplotlib.lines import Line2D
 from matplotlib.markers import MarkerStyle
 from numpy.typing import NDArray
 from omegaconf import DictConfig
-from sklearn.cluster import KMeans
+from sklearn.cluster import AgglomerativeClustering, KMeans, SpectralClustering
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_samples
@@ -284,10 +284,12 @@ def select_train_test_splits(
 ) -> pd.DataFrame:
     """Assigns each scenario to an output split (training/validation/testing) based on cluster hardness.
 
-    Clusters are ranked by their mean hardness score and greedily added to the test set until the accumulated test
-    fraction reaches approximately ``split_ratios[2]`` of all scenarios. When ``hardness_ascending=True`` (silhouette),
-    the clusters with the **lowest** mean score are considered hardest; when ``hardness_ascending=False`` (DBI), the
-    clusters with the **highest** mean score are considered hardest.
+    Clusters are ranked by their mean hardness score and greedily added to the test set in hardness order. Whole
+    clusters are added until the next cluster would exceed ``int(total * split_ratios[2])`` scenarios; at that point
+    only the hardest scenarios within that boundary cluster are taken to fill up to the target exactly. When
+    ``hardness_ascending=True`` (silhouette), the **lowest** individual score is hardest; when
+    ``hardness_ascending=False`` (DBI), the **highest** individual score is hardest. This keeps the test set at
+    exactly the target count with a fully deterministic selection.
 
     The remaining (non-test) scenarios are shuffled and then split: the first ``int(total * split_ratios[1])`` become
     validation and the rest become training.
@@ -310,8 +312,9 @@ def select_train_test_splits(
     df["hardness_score"] = hardness_scores
     df = df.rename(columns={"split": "input_set"})
 
+    rng_to_use = rng if rng is not None else np.random.default_rng()
     total = len(df)
-    target_test_count = total * split_ratios[2]
+    target_test_count = int(total * split_ratios[2])
 
     # Rank clusters by mean hardness and greedily assign to test set until target count is reached.
     cluster_stats = (
@@ -321,26 +324,34 @@ def select_train_test_splits(
         .sort_values("mean_hardness", ascending=hardness_ascending)
     )
 
-    # NOTE: through this strategy we're likely to exceed the test count.
-    test_clusters: set[int] = set()
+    # Add whole clusters in hardness order; when the next cluster would exceed the target, sample only what is needed
+    # from it so the test set stays at exactly target_test_count scenarios.
+    test_indices: set[int] = set()
     accumulated = 0
     for _, row in cluster_stats.iterrows():
         if accumulated >= target_test_count:
             break
-        test_clusters.add(int(row["cluster"]))
-        accumulated += int(row["size"])
+        cluster_id = int(row["cluster"])
+        cluster_indices = df.index[df["cluster"] == cluster_id].tolist()
+        remaining = target_test_count - accumulated
+        if len(cluster_indices) <= remaining:
+            test_indices.update(cluster_indices)
+            accumulated += len(cluster_indices)
+        else:
+            # Partial cluster: pick the hardest scenarios within this cluster to fill up to the target.
+            cluster_rows = df.loc[cluster_indices].sort_values("hardness_score", ascending=hardness_ascending)
+            test_indices.update(cluster_rows.index[:remaining].tolist())
+            accumulated += remaining
+            break
 
-    non_test_indices = df.index[~df["cluster"].isin(test_clusters)].tolist()
-    if rng is not None:
-        rng.shuffle(non_test_indices)
-    else:
-        np.random.default_rng().shuffle(non_test_indices)  # unseeded: non-reproducible when rng is not provided
+    non_test_indices = [i for i in df.index if i not in test_indices]
+    rng_to_use.shuffle(non_test_indices)
 
     num_val = int(total * split_ratios[1])
     val_indices: set[int] = set(non_test_indices[:num_val])
 
     def _assign_output_set(row: pd.Series) -> str:  # pyright: ignore[reportMissingTypeArgument]
-        if row["cluster"] in test_clusters:
+        if row.name in test_indices:
             return "testing"
 
         if row.name in val_indices:
@@ -405,7 +416,7 @@ def visualize_cluster_graphs(  # noqa: PLR0913
                     simplify=simplify,
                 )
 
-    print(f"Saved per-cluster graph examples to {output_path}")
+    _LOGGER.info("Saved per-cluster graph examples to %s", output_path)
 
 
 def visualize_descriptor_scatter(  # noqa: PLR0913
@@ -520,7 +531,7 @@ def visualize_descriptor_scatter(  # noqa: PLR0913
     scatter_path = output_path / "cluster_scatter.png"
     fig.savefig(str(scatter_path), dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved scatter plot to {scatter_path}")
+    _LOGGER.info("Saved scatter plot to %s", scatter_path)
 
 
 def _split_and_copy_scenarios(  # pyright: ignore[reportUnusedFunction]
@@ -566,27 +577,102 @@ def _split_and_copy_scenarios(  # pyright: ignore[reportUnusedFunction]
     common.verify_splits(output_path)
 
 
+def _fit_clustering_model(
+    scaled_data: NDArray[np.float64],
+    config: DictConfig,
+) -> tuple[Any, NDArray[np.int32]]:
+    """Fits a clustering model on scaled data, dispatching by config.clustering_algorithm.
+
+    Supported algorithms: ``'kmeans'``, ``'hdbscan'``, ``'agglomerative'``, ``'ward'``, ``'spectral'``.
+
+    Args:
+        scaled_data: Scaled feature matrix of shape (N, D).
+        config: Must contain ``clustering_algorithm`` and ``seed``. ``n_clusters`` is used by all algorithms except
+            ``'hdbscan'``. For ``'hdbscan'``, ``min_cluster_size`` (default 5) and optionally ``min_samples`` are read.
+
+    Returns:
+        ``(model, labels)`` where *model* is the fitted estimator and *labels* are integer cluster assignments of
+        shape (N,).
+
+    Raises:
+        ValueError: If an unsupported clustering algorithm is specified.
+    """
+    algorithm: str = config.get("clustering_algorithm", "kmeans")
+    n_clusters: int = config.n_clusters
+    seed: int = config.seed
+
+    match algorithm:
+        case "kmeans":
+            model: Any = KMeans(n_clusters=n_clusters, random_state=seed, n_init="auto")
+        case "agglomerative":
+            model = AgglomerativeClustering(n_clusters=n_clusters)
+        case "ward":
+            model = AgglomerativeClustering(n_clusters=n_clusters, linkage="ward")
+        case "spectral":
+            model = SpectralClustering(n_clusters=n_clusters, random_state=seed, assign_labels="kmeans")
+        case _:
+            error_message = f"Unsupported clustering algorithm: {algorithm!r}"
+            raise ValueError(error_message)
+
+    labels: NDArray[np.int32] = model.fit_predict(scaled_data).astype(np.int32)
+    return model, labels
+
+
+def _assign_clusters(
+    model: Any,  # noqa: ANN401
+    sample_scaled: NDArray[np.float64],
+    sample_labels: NDArray[np.int32],
+    new_data: NDArray[np.float64],
+) -> NDArray[np.int32]:
+    """Assigns cluster labels to new data points using the fitted model.
+
+    For models that expose a ``predict()`` method (e.g. KMeans), delegates to it directly. For transductive algorithms
+    (HDBSCAN, AgglomerativeClustering, SpectralClustering) that lack ``predict()``, computes per-cluster centroids from
+    the training data and assigns each new point to the nearest centroid. HDBSCAN noise labels (-1) are excluded when
+    computing centroids.
+
+    Args:
+        model: Fitted clustering estimator.
+        sample_scaled: Training data used to fit the model, shape (N, D).
+        sample_labels: Cluster labels for *sample_scaled*, shape (N,).
+        new_data: New data to assign, shape (M, D).
+
+    Returns:
+        Integer cluster labels for *new_data*, shape (M,).
+    """
+    if hasattr(model, "predict") and callable(model.predict):
+        return model.predict(new_data).astype(np.int32)  # pyright: ignore[reportAttributeAccessIssue]
+
+    # Nearest-centroid fallback for transductive algorithms.
+    valid_ids = np.unique(sample_labels)
+    valid_ids = valid_ids[valid_ids >= 0]  # exclude HDBSCAN noise label -1
+    centroids = np.stack([sample_scaled[sample_labels == c].mean(axis=0) for c in valid_ids])
+    dists = np.linalg.norm(new_data[:, None, :] - centroids[None, :, :], axis=2)
+    return valid_ids[np.argmin(dists, axis=1)].astype(np.int32)
+
+
 def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
-    """Clusters scenarios by road topology using NetLSD graph descriptors and KMeans.
+    """Clusters scenarios by road topology using NetLSD graph descriptors and a configurable clustering algorithm.
 
     The pipeline runs in two phases:
 
     1. **Fit phase** — A random sample of P% of all scenarios (or `num_scenarios` if specified) is used to fit a
-       StandardScaler and KMeans model. Hardness scores on this sample drive cluster-hardness ranking.
+       StandardScaler and the selected clustering model. Hardness scores on this sample drive cluster-hardness ranking.
     2. **Assign phase** — The remaining scenarios are embedded using the cached descriptors and assigned to the
-       nearest cluster using the fitted model.
+       nearest cluster. For algorithms with a ``predict()`` method (KMeans), it is used directly; others fall back to
+       nearest-centroid assignment.
 
     After clustering, `select_train_test_splits` designates the hardest clusters as the test set so that the test
     split is more challenging. The hardness metric is controlled by ``hardness_metric``: ``"silhouette"`` selects the
     clusters with the **lowest** mean silhouette (most ambiguous), and ``"dbi"`` selects clusters with the **highest**
     mean Davies-Bouldin Index (highest within-cluster scatter relative to between-cluster separation). Results are
-    saved as `environment_benchmark.csv`.
+    saved under ``cache_path/<clustering_algorithm>/``.
 
     Args:
         config: Hydra config.
-            Expected keys: input_data_path, output_data_path, cache_path, n_clusters, n_examples, sample_percentage,
-            num_scenarios, num_workers, parallel, ego_centered, num_map_elements, seed, overwrite, map_range, reduction,
-            simplify, split_ratios, hardness_metric.
+            Expected keys: input_data_path, output_data_path, cache_path, clustering_algorithm, n_clusters,
+            n_examples, sample_percentage, num_scenarios, num_workers, parallel, ego_centered, num_map_elements, seed,
+            overwrite, map_range, reduction, simplify, split_ratios, hardness_metric.
 
     Raises:
         ValueError: If no valid scenario descriptors could be computed.
@@ -607,7 +693,7 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
     descriptor_filepath = Path(cache_path) / "descriptors_cache.pkl"
 
     all_filepaths: list[Path] = [fp for fp in input_data_path.rglob("*.pkl") if "infos" not in fp.stem]
-    print(f"Found {len(all_filepaths)} scenario files.")
+    _LOGGER.info("Found %d scenario files.", len(all_filepaths))
 
     num_samples = (
         config.num_scenarios
@@ -615,7 +701,7 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
         else max(1, round(len(all_filepaths) * config.sample_percentage))
     )
     num_samples = min(num_samples, len(all_filepaths))
-    print(f"Using {num_samples} scenarios ({num_samples / len(all_filepaths):.1%}) to fit the model.")
+    _LOGGER.info("Using %d scenarios (%.1f%%) to fit the model.", num_samples, 100 * num_samples / len(all_filepaths))
 
     sample_indices = rng.choice(len(all_filepaths), size=num_samples, replace=False)
     sample_mask = np.zeros(len(all_filepaths), dtype=bool)
@@ -623,7 +709,7 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
     sample_filepaths = [fp for fp, m in zip(all_filepaths, sample_mask, strict=False) if m]
     remaining_filepaths = [fp for fp, m in zip(all_filepaths, sample_mask, strict=False) if not m]
 
-    print(f"\n[Phase 1] Computing descriptors for {len(sample_filepaths)} sample scenarios...")
+    _LOGGER.info("[Phase 1] Computing descriptors for %d sample scenarios...", len(sample_filepaths))
     sample_ids, sample_splits, sample_descriptors = _compute_descriptors_with_cache(
         sample_filepaths,
         descriptor_filepath,
@@ -636,12 +722,11 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
         simplify=config.simplify,
     )
 
-    print(f"Fitting StandardScaler and KMeans({config.n_clusters}) on sample...")
+    algorithm: str = config.get("clustering_algorithm", "kmeans")
+    _LOGGER.info("Fitting StandardScaler and %s(%d) on sample...", algorithm, config.n_clusters)
     scaler = StandardScaler()
-    # sample_scaled = scaler.fit_transform(sample_descriptors)
-    sample_scaled = sample_descriptors
-    kmeans = KMeans(n_clusters=config.n_clusters, random_state=config.seed, n_init="auto")
-    sample_labels = kmeans.fit_predict(sample_scaled)
+    sample_scaled = scaler.fit_transform(sample_descriptors)
+    clustering_model, sample_labels = _fit_clustering_model(sample_scaled, config)
 
     all_ids = list(sample_ids)
     all_splits = list(sample_splits)
@@ -649,7 +734,7 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
     all_labels = list(sample_labels)
 
     if remaining_filepaths:
-        print(f"\n[Phase 2] Computing descriptors for {len(remaining_filepaths)} remaining scenarios...")
+        _LOGGER.info("[Phase 2] Computing descriptors for %d remaining scenarios...", len(remaining_filepaths))
         rem_ids, rem_splits, rem_descriptors = _compute_descriptors_with_cache(
             remaining_filepaths,
             descriptor_filepath,
@@ -661,9 +746,8 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
             map_range=config.map_range,
             simplify=config.simplify,
         )
-        # rem_scaled = scaler.transform(rem_descriptors)
-        rem_scaled = rem_descriptors
-        rem_labels = kmeans.predict(rem_scaled)
+        rem_scaled = scaler.transform(rem_descriptors)
+        rem_labels = _assign_clusters(clustering_model, sample_scaled, sample_labels, rem_scaled)
 
         all_ids += list(rem_ids)
         all_splits += list(rem_splits)
@@ -675,13 +759,13 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
 
     hardness_metric: str = config.get("hardness_metric", "silhouette")
     if hardness_metric == "dbi":
-        print(f"\nComputing per-cluster DBI scores for {len(all_ids)} scenarios...")
+        _LOGGER.info("Computing per-cluster DBI scores for %d scenarios...", len(all_ids))
         hardness_scores: NDArray[np.float64] = _per_cluster_dbi(all_scaled_matrix, all_labels_array)
-        hardness_ascending = False
-    else:
-        print(f"\nComputing silhouette scores for {len(all_ids)} scenarios...")
-        hardness_scores = np.asarray(silhouette_samples(all_scaled_matrix, all_labels_array))
         hardness_ascending = True
+    else:
+        _LOGGER.info("Computing silhouette scores for %d scenarios...", len(all_ids))
+        hardness_scores = np.asarray(silhouette_samples(all_scaled_matrix, all_labels_array))
+        hardness_ascending = False
 
     clusters_df = pd.DataFrame({"scenario_id": all_ids, "split": all_splits, "cluster": all_labels_array})
     benchmark_df = select_train_test_splits(
@@ -695,19 +779,23 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
     output_df = benchmark_df[["scenario_id", "cluster", "hardness_score", "input_set", "output_set"]].rename(
         columns={"cluster": "cluster_label"}
     )
-    benchmark_csv_path = cache_path / "environment_benchmark.csv"
+
+    algorithm_path = cache_path / algorithm
+    algorithm_path.mkdir(parents=True, exist_ok=True)
+
+    benchmark_csv_path = algorithm_path / "environment_benchmark.csv"
     output_df.to_csv(benchmark_csv_path, index=False)
-    print(f"\nSaved benchmark split assignments to {benchmark_csv_path}")
+    _LOGGER.info("Saved benchmark split assignments to %s", benchmark_csv_path)
 
-    kmeans_path = cache_path / "kmeans_model.pkl"
-    with kmeans_path.open("wb") as f:
-        pickle.dump(kmeans, f)
-    print(f"Saved KMeans model to {kmeans_path}")
+    model_path = algorithm_path / "clustering_model.pkl"
+    with model_path.open("wb") as f:
+        pickle.dump(clustering_model, f)
+    _LOGGER.info("Saved clustering model to %s", model_path)
 
-    # scaler_path = cache_path / "scaler.pkl"
-    # with scaler_path.open("wb") as f:
-    #     pickle.dump(scaler, f)
-    # print(f"Saved StandardScaler to {scaler_path}")
+    scaler_path = cache_path / "scaler.pkl"
+    with scaler_path.open("wb") as f:
+        pickle.dump(scaler, f)
+    _LOGGER.info("Saved StandardScaler to %s", scaler_path)
 
     cluster_stats = (
         benchmark_df.groupby("cluster")
@@ -715,19 +803,20 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
         .sort_index()
     )
     test_cluster_ids = set(benchmark_df[benchmark_df["output_set"] == "testing"]["cluster"].unique())
-    print(f"\nCluster summary (hardness_metric={hardness_metric}):")
-    for cluster_id, row in cluster_stats.iterrows():
-        tag = " [TEST]" if cluster_id in test_cluster_ids else ""
-        print(f"  Cluster {cluster_id}: {int(row['size'])} scenarios, mean_hardness={row['mean_hardness']:.3f}{tag}")
+    cluster_lines = "\n".join(
+        f"  Cluster {cluster_id}: {int(row['size'])} scenarios, mean_hardness={row['mean_hardness']:.3f}"
+        + (" [TEST]" if cluster_id in test_cluster_ids else "")
+        for cluster_id, row in cluster_stats.iterrows()
+    )
+    _LOGGER.info("Cluster summary (hardness_metric=%s):\n%s", hardness_metric, cluster_lines)
 
     split_counts = benchmark_df["output_set"].value_counts()
-    print("\nOutput split distribution:")
-    for split_name, count in split_counts.items():
-        print(f"  {split_name}: {count} ({count / len(benchmark_df):.1%})")
+    split_lines = "\n".join(
+        f"  {name}: {count} ({count / len(benchmark_df):.1%})" for name, count in split_counts.items()
+    )
+    _LOGGER.info("Output split distribution:\n%s", split_lines)
 
-    # _split_and_copy_scenarios(benchmark_df, descriptor_filepath, output_path, num_workers)
-
-    cluster_results_path = cache_path / "cluster_results"
+    cluster_results_path = algorithm_path / "cluster_results"
     if cluster_results_path.exists():
         shutil.rmtree(cluster_results_path)
 
@@ -751,3 +840,6 @@ def create_environments_benchmark(config: DictConfig) -> None:  # noqa: PLR0915
         map_range=config.map_range,
         simplify=config.simplify,
     )
+
+    if config.prepare_splits:
+        _split_and_copy_scenarios(benchmark_df, descriptor_filepath, output_path, num_workers)

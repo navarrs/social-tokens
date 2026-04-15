@@ -38,7 +38,7 @@ root_path = pyrootutils.setup_root(__file__, indicator=".project-root", pythonpa
 utils.disable_mlflow_tls_verification()
 
 
-def _run_sample_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput], output_path: Path) -> None:
+def _run_sample_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput], output_path: Path) -> None:  # noqa: PLR0912
     """Wrapper function which runs a specified sample selection strategy. A sample selection strategy produces a
     dictionary containing the a set of training scenarios to keep and to drop.
 
@@ -85,6 +85,11 @@ def _run_sample_selection(config: DictConfig, model_outputs: dict[str, output.Mo
                 "hamming" if selection_strategy == SampleSelection.VOCAB_CLUSTER_HAMMING_DROP else "jaccard"
             )
             selected_samples = sample_selection.vocab_cluster_selection(config, model_outputs)
+        case SampleSelection.VOCAB_TOKEN_HAMMING_DROP | SampleSelection.VOCAB_TOKEN_JACCARD_DROP:
+            config.alignment_strategy = (
+                "hamming" if selection_strategy == SampleSelection.VOCAB_TOKEN_HAMMING_DROP else "jaccard"
+            )
+            selected_samples = sample_selection.vocab_token_selection(config, model_outputs)
         case _:
             error_message = f"Unsupported selection strategy: {selection_strategy}"
             raise ValueError(error_message)

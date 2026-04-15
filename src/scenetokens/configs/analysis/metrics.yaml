@@ -1,11 +1,14 @@
 # @package _global_
 seed: 42 # Seed for random generators
-show_run_id: true
+show_run_id: false
 models_to_compare: [
   'autobot',
   'scenetransformer',
   'wayformer',
   'mtr',
+  # 'scenetokens',
+  # 'causal_scenetokens',
+  # 'safe_scenetokens',
 ]
 
 trajectory_forecasting_metrics: [
@@ -13,7 +16,7 @@ trajectory_forecasting_metrics: [
   'minFDE6',
   'minADE6',
   'missRate',
-  'collisionRate0.1',
+  # 'collisionRate0.1',
   'collisionRate0.25',
 ]
 
@@ -51,20 +54,22 @@ sample_selection_strategies_to_compare: [
   # 'simple_kmeans_cosine_drop',
   # 'gumbel_kmeans_cosine_drop',
   'den_tp',
-  # 'vocab_cluster_jaccard_drop',
-  'vocab_cluster_hamming_drop',
+  'vocab_cluster_jaccard_drop',
+  # 'vocab_cluster_hamming_drop',
   # 'token_random_drop',
   # 'simple_token_jaccard_drop',
   # 'gumbel_token_jaccard_drop',
   # 'simple_token_hamming_drop',
   # 'gumbel_token_hamming_drop',
+  # 'vocab_token_jaccard_drop',
+  # 'vocab_token_hamming_drop',
 ]
 sample_retention_percentages: [0.45, 0.55, 0.65, 0.75, 0.85, 0.95]
 
 run_sample_selection_sweep_lineplot_analysis: false
 lineplot_colormap: tab10
 
-run_sample_selection_sweep_heatmap_analysis: true
+run_sample_selection_sweep_heatmap_analysis: false
 heatmap_colormap: RdYlGn_r
 highlight_color: dodgerblue
 add_rectangle_annotation: false
@@ -81,7 +86,7 @@ benchmark_colormap: null
 benchmark_splits_to_compare: []
 
 # Ego-safeshift analysis
-run_ego_safeshift_analysis: true
+run_ego_safeshift_analysis: false
 ego_safeshift_benchmark: 'ego-safeshift-causal-benchmark'
 ego_safeshift_filepath: "./meta/distribution_shift_results/ego_safeshift_benchmark.csv"
 ego_safeshift_colormap: colorblind
@@ -91,7 +96,7 @@ ego_safeshift_splits_to_compare: [
 ]
 
 # Causal benchmark analysis
-run_causal_benchmark_analysis: false
+run_causal_benchmark_analysis: true
 causal_benchmark: 'causal-benchmark-labeled'
 causal_benchmark_filepath: "./meta/distribution_shift_results/causal_benchmark.csv"
 causal_benchmark_colormap: colorblind

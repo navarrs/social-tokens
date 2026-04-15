@@ -11,6 +11,7 @@ from sklearn.cluster import KMeans
 
 from scenetokens.sample_selection.common import (
     aggregate_selected_samples,
+    allocate_removal_budget,
     compute_proportional_number_to_drop,
     greedy_select_from_sim_matrix,
     make_group_result,
@@ -44,52 +45,6 @@ def _get_mode_embeddings(
         scenario_ids.append(scenario_id)
         all_embeddings.append(emb[sort_order])
     return np.asarray(scenario_ids), np.stack(all_embeddings)
-
-
-def _allocate_removal_budget(
-    cluster_sizes: dict[int, int],
-    total_removal: int,
-) -> dict[int, int]:
-    """Allocates the removal budget across clusters proportional to their size.
-
-    Larger clusters receive more of the removal budget. Any deficit from integer rounding is
-    distributed to the largest clusters first; any surplus is trimmed from the largest clusters first.
-
-    Args:
-        cluster_sizes: mapping from cluster label to the number of scenarios in that cluster.
-        total_removal: total number of scenarios to remove across all clusters.
-
-    Returns:
-        Dict mapping each cluster label to the number of scenarios to remove from it.
-    """
-    total = sum(cluster_sizes.values())
-    if total == 0:
-        return dict.fromkeys(cluster_sizes, 0)
-
-    allocations: dict[int, int] = {k: int(total_removal * size / total) for k, size in cluster_sizes.items()}
-    remaining = total_removal - sum(allocations.values())
-
-    # Distribute leftover removals to the largest clusters first.
-    for k in sorted(cluster_sizes, key=lambda x: cluster_sizes[x], reverse=True):
-        if remaining == 0:
-            break
-        available = cluster_sizes[k] - allocations[k]
-        if available > 0:
-            add = min(available, remaining)
-            allocations[k] += add
-            remaining -= add
-
-    # Trim any accidental over-allocation from the largest clusters first.
-    if remaining < 0:
-        excess = -remaining
-        for k in sorted(cluster_sizes, key=lambda x: cluster_sizes[x], reverse=True):
-            if excess == 0:
-                break
-            trim = min(allocations[k], excess)
-            allocations[k] -= trim
-            excess -= trim
-
-    return allocations
 
 
 def _fit_kmeans(
@@ -283,7 +238,7 @@ def vocab_cluster_selection(config: DictConfig, model_outputs: dict[str, output.
     unique_clusters, cluster_counts = np.unique(best_mode_labels, return_counts=True)
     cluster_sizes = {int(c): int(cnt) for c, cnt in zip(unique_clusters, cluster_counts, strict=True)}
     total_removal = int((1 - config.percentage_to_keep) * num_scenarios)
-    removal_budgets = _allocate_removal_budget(cluster_sizes, total_removal)
+    removal_budgets = allocate_removal_budget(cluster_sizes, total_removal)
 
     alignment_strategy = config.get("alignment_strategy", "hamming")
     match alignment_strategy:

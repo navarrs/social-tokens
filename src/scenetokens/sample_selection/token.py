@@ -9,11 +9,14 @@ from omegaconf import DictConfig
 
 from scenetokens.sample_selection.common import (
     aggregate_selected_samples,
+    allocate_removal_budget,
     compute_proportional_number_to_drop,
+    greedy_select_from_sim_matrix,
     make_group_result,
     sort_ids_by_score,
 )
 from scenetokens.schemas import output_schemas as output
+from scenetokens.utils import metrics as metrics_utils
 from scenetokens.utils.model_analysis_utils import (
     compute_alignment_scores,
     get_group_modes,
@@ -123,6 +126,66 @@ def alignment_based_selection_per_token(
             )
         else:
             selected_samples[base_token] = make_group_result(keep=scenario_ids.tolist(), drop=[])
+
+    aggregate_selected_samples(selected_samples)
+    return selected_samples
+
+
+def vocab_token_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput]) -> dict[str, Any]:
+    """Sample selection using tokenization groups and greedy diversity-based selection.
+
+    This is the token-based analogue of vocab_cluster_selection. Instead of fitting KMeans on embeddings to produce
+    cluster groups, it uses the model's learned token vocabulary directly, grouping scenarios by their best-mode token.
+
+    Algorithm:
+        1. Use get_tokenization_groups() to group scenarios by best-mode token. Each scenario's token sequence across
+            all modes forms a pseudo-vocabulary of length M (one token per mode, sorted by descending mode probability).
+        2. Allocate a removal budget per token group proportional to group size, so larger groups are pruned more
+            aggressively.
+        3. Within each group, compute a pairwise similarity matrix over token sequences using the configured alignment
+            strategy ('hamming' or 'jaccard') and apply greedy submodular selection to retain the most diverse
+            scenarios.
+
+    Args:
+        config: encapsulates model analysis configuration parameters. Requires: percentage_to_keep (float),
+            alignment_strategy (str, 'hamming' or 'jaccard'), seed (int).
+        model_outputs: a dictionary containing model outputs per scenario.
+
+    Returns:
+        selected_samples: a dictionary containing the IDs of the samples to keep or drop.
+    """
+    num_scenarios = len(model_outputs)
+    tokenization_groups, group_scenario_ids = get_tokenization_groups(config, model_outputs)
+
+    group_sizes = {token: ids.shape[0] for token, ids in group_scenario_ids.items() if ids is not None}
+    total_removal = int((1 - config.percentage_to_keep) * num_scenarios)
+    removal_budgets = allocate_removal_budget(group_sizes, total_removal)
+
+    alignment_strategy = config.get("alignment_strategy", "hamming")
+    match alignment_strategy:
+        case "hamming":
+            compute_sim_matrix = metrics_utils.compute_pairwise_hamming_similarity
+        case "jaccard":
+            compute_sim_matrix = metrics_utils.compute_pairwise_jaccard_similarity
+        case _:
+            error_message = f"Unsupported alignment_strategy '{alignment_strategy}'. Choose 'hamming' or 'jaccard'."
+            raise ValueError(error_message)
+
+    selected_samples: dict[Any, Any] = {}
+    for token_id, token_group in tokenization_groups.items():
+        if token_group is None:
+            continue
+        scenario_ids_arr = group_scenario_ids[token_id].squeeze(axis=1)
+        num_to_remove = removal_budgets.get(token_id, 0)
+        num_to_keep = len(scenario_ids_arr) - num_to_remove
+
+        if num_to_remove == 0:
+            selected_samples[token_id] = make_group_result(keep=scenario_ids_arr.tolist(), drop=[])
+            continue
+
+        sim_matrix = compute_sim_matrix(token_group)
+        keep, drop = greedy_select_from_sim_matrix(scenario_ids_arr, sim_matrix, num_to_keep)
+        selected_samples[token_id] = make_group_result(keep=keep, drop=drop)
 
     aggregate_selected_samples(selected_samples)
     return selected_samples

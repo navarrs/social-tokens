@@ -34,6 +34,8 @@ class SampleSelection(Enum):
     DEN_TP = "den_tp"
     VOCAB_CLUSTER_HAMMING_DROP = "vocab_cluster_hamming_drop"
     VOCAB_CLUSTER_JACCARD_DROP = "vocab_cluster_jaccard_drop"
+    VOCAB_TOKEN_HAMMING_DROP = "vocab_token_hamming_drop"  # noqa: S105
+    VOCAB_TOKEN_JACCARD_DROP = "vocab_token_jaccard_drop"  # noqa: S105
 
 
 class DataSplits(Enum):

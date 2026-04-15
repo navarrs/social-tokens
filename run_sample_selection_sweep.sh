@@ -77,6 +77,8 @@ TOKEN_STRATEGIES=(
     simple_token_hamming_drop
     gumbel_token_jaccard_drop
     gumbel_token_hamming_drop
+    vocab_token_hamming_drop
+    vocab_token_jaccard_drop
 )
 DEN_TP_STRATEGY=(
     den_tp
