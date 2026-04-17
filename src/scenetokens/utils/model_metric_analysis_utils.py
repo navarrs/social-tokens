@@ -42,6 +42,7 @@ MODEL_SIZE_MAP = {
 BENCHMARK_NAME_MAP = {
     "causal-benchmark-labeled": "CausalAgents",
     "ego-safeshift-causal-benchmark": "EgoSafeShift",
+    "environments-benchmark": "Environments",
 }
 
 SPLIT_NAME_MAP = {
@@ -62,6 +63,8 @@ STRATEGY_NAME_MAP = {
     "den_tp": "DenTP",
     "vocab_cluster_jaccard_drop": "DenTP-KJ",
     "vocab_cluster_hamming_drop": "DenTP-KH",
+    "vocab_token_jaccard_drop": "DenTP-TJ",
+    "vocab_token_hamming_drop": "DenTP-TH",
 }
 
 

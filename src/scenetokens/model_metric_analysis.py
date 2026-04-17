@@ -55,6 +55,14 @@ def main(config: DictConfig) -> float | None:
         causal_benchmark_config.benchmark_splits_to_compare = config.causal_benchmark_splits_to_compare
         utils.run_benchmark_analysis(causal_benchmark_config, log, output_path)
 
+    if config.run_environments_benchmark_analysis:
+        environments_benchmark_config = copy.deepcopy(config)
+        environments_benchmark_config.benchmark = config.environments_benchmark
+        environments_benchmark_config.benchmark_filepath = config.environments_benchmark_filepath
+        environments_benchmark_config.benchmark_colormap = config.environments_benchmark_colormap
+        environments_benchmark_config.benchmark_splits_to_compare = config.environments_benchmark_splits_to_compare
+        utils.run_benchmark_analysis(environments_benchmark_config, log, output_path)
+
     log.info("Total time: %s second", time() - start)
     log.info("Process completed!")
 

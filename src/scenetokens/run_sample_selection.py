@@ -38,7 +38,7 @@ root_path = pyrootutils.setup_root(__file__, indicator=".project-root", pythonpa
 utils.disable_mlflow_tls_verification()
 
 
-def _run_sample_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput], output_path: Path) -> None:  # noqa: PLR0912
+def _run_sample_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput], output_path: Path) -> None:  # noqa: PLR0912, PLR0915
     """Wrapper function which runs a specified sample selection strategy. A sample selection strategy produces a
     dictionary containing the a set of training scenarios to keep and to drop.
 
@@ -50,42 +50,54 @@ def _run_sample_selection(config: DictConfig, model_outputs: dict[str, output.Mo
     selection_strategy = SampleSelection(config.selection_strategy)
     match selection_strategy:
         case SampleSelection.RANDOM_DROP:
+            subdir = "random"
             selected_samples = sample_selection.random_selection(config, model_outputs)
         case SampleSelection.TOKEN_RANDOM_DROP:
+            subdir = "token"
             selected_samples = sample_selection.random_selection_per_token(config, model_outputs)
         case SampleSelection.SIMPLE_TOKEN_JACCARD_DROP:
+            subdir = "token"
             config.sorting_strategy = "simple"
             config.alignment_strategy = "jaccard"
             selected_samples = sample_selection.alignment_based_selection_per_token(config, model_outputs)
         case SampleSelection.SIMPLE_TOKEN_HAMMING_DROP:
+            subdir = "token"
             config.sorting_strategy = "simple"
             config.alignment_strategy = "hamming"
             selected_samples = sample_selection.alignment_based_selection_per_token(config, model_outputs)
         case SampleSelection.GUMBEL_TOKEN_JACCARD_DROP:
+            subdir = "token"
             config.sorting_strategy = "gumbel"
             config.alignment_strategy = "jaccard"
             selected_samples = sample_selection.alignment_based_selection_per_token(config, model_outputs)
         case SampleSelection.GUMBEL_TOKEN_HAMMING_DROP:
+            subdir = "token"
             config.sorting_strategy = "gumbel"
             config.alignment_strategy = "hamming"
             selected_samples = sample_selection.alignment_based_selection_per_token(config, model_outputs)
         case SampleSelection.KMEANS_RANDOM_DROP:
+            subdir = "kmeans"
             config.clustering_strategy = "kmeans"
             selected_samples = sample_selection.random_selection_per_cluster(config, model_outputs)
         case SampleSelection.SIMPLE_KMEANS_COSINE_DROP:
+            subdir = "kmeans"
             config.sorting_strategy = "simple"
             selected_samples = sample_selection.cosine_selection_per_cluster(config, model_outputs)
         case SampleSelection.GUMBEL_KMEANS_COSINE_DROP:
+            subdir = "kmeans"
             config.sorting_strategy = "gumbel"
             selected_samples = sample_selection.cosine_selection_per_cluster(config, model_outputs)
         case SampleSelection.DEN_TP:
+            subdir = "dentp"
             selected_samples = sample_selection.dentp_selection(config, model_outputs)
         case SampleSelection.VOCAB_CLUSTER_HAMMING_DROP | SampleSelection.VOCAB_CLUSTER_JACCARD_DROP:
+            subdir = "kmeans"
             config.alignment_strategy = (
                 "hamming" if selection_strategy == SampleSelection.VOCAB_CLUSTER_HAMMING_DROP else "jaccard"
             )
             selected_samples = sample_selection.vocab_cluster_selection(config, model_outputs)
         case SampleSelection.VOCAB_TOKEN_HAMMING_DROP | SampleSelection.VOCAB_TOKEN_JACCARD_DROP:
+            subdir = "token"
             config.alignment_strategy = (
                 "hamming" if selection_strategy == SampleSelection.VOCAB_TOKEN_HAMMING_DROP else "jaccard"
             )
@@ -94,7 +106,10 @@ def _run_sample_selection(config: DictConfig, model_outputs: dict[str, output.Mo
             error_message = f"Unsupported selection strategy: {selection_strategy}"
             raise ValueError(error_message)
 
-    output_filepath = output_path / f"sample_selection_{selection_strategy.value}_{config.percentage_to_keep}.json"
+    output_filepath = (
+        output_path / subdir / f"sample_selection_{selection_strategy.value}_{config.percentage_to_keep}.json"
+    )
+    output_filepath.parent.mkdir(parents=True, exist_ok=True)
     with output_filepath.open("w") as f:
         json.dump(selected_samples, f, indent=2)
 

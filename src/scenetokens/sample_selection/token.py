@@ -9,7 +9,6 @@ from omegaconf import DictConfig
 
 from scenetokens.sample_selection.common import (
     aggregate_selected_samples,
-    allocate_removal_budget,
     compute_proportional_number_to_drop,
     greedy_select_from_sim_matrix,
     make_group_result,
@@ -157,9 +156,14 @@ def vocab_token_selection(config: DictConfig, model_outputs: dict[str, output.Mo
     num_scenarios = len(model_outputs)
     tokenization_groups, group_scenario_ids = get_tokenization_groups(config, model_outputs)
 
-    group_sizes = {token: ids.shape[0] for token, ids in group_scenario_ids.items() if ids is not None}
-    total_removal = int((1 - config.percentage_to_keep) * num_scenarios)
-    removal_budgets = allocate_removal_budget(group_sizes, total_removal)
+    group_percentages = {
+        token_id: ids.shape[0] / num_scenarios for token_id, ids in group_scenario_ids.items() if ids is not None
+    }
+    min_percentage_per_class = config.min_percentage_per_class
+    valid_percentages = {k: v for k, v in group_percentages.items() if v > min_percentage_per_class}
+    total_valid_percentage = sum(valid_percentages.values())
+
+    num_scenarios_to_drop = int((1 - config.percentage_to_keep) * num_scenarios)
 
     alignment_strategy = config.get("alignment_strategy", "hamming")
     match alignment_strategy:
@@ -176,7 +180,9 @@ def vocab_token_selection(config: DictConfig, model_outputs: dict[str, output.Mo
         if token_group is None:
             continue
         scenario_ids_arr = group_scenario_ids[token_id].squeeze(axis=1)
-        num_to_remove = removal_budgets.get(token_id, 0)
+        num_to_remove = compute_proportional_number_to_drop(
+            num_scenarios_to_drop, group_percentages[token_id], min_percentage_per_class, total_valid_percentage
+        )
         num_to_keep = len(scenario_ids_arr) - num_to_remove
 
         if num_to_remove == 0:
